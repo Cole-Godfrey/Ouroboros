@@ -1,5 +1,7 @@
-// Full-stack test: real daemon + real EpisodeRunner + real Pi binary + real extension + real metering proxy.
-// Only the model is fake: a scripted Anthropic-compatible server.
+// end to end: the real pi runs an episode against a scripted model through the metering proxy.
+
+// full-stack test: real daemon + real EpisodeRunner + real Pi binary + real extension + real metering proxy.
+// only the model is fake: a scripted Anthropic-compatible server.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,7 +12,7 @@ import type { AddressInfo } from 'node:net';
 import { Daemon } from '../src/core/daemon.ts';
 import { LlmProxy } from '../src/core/llm-proxy.ts';
 import { ROOT_DIR } from '../src/lib/paths.ts';
-import { tmpEnv } from './helpers.ts';
+import { tmpEnv, PAID_LLM } from './helpers.ts';
 
 interface Step {
   text?: string;
@@ -57,6 +59,7 @@ function mockAnthropic(steps: Step[]): Promise<{ url: string; requests: Array<{ 
 async function boot(steps: Step[]) {
   const e = tmpEnv();
   fs.mkdirSync(e.paths.etc, { recursive: true });
+  fs.writeFileSync(e.paths.config, JSON.stringify(PAID_LLM));
   const env = { ...e.env, PI_OFFLINE: '1', PI_SKIP_VERSION_CHECK: '1' };
   Object.assign(process.env, { PI_OFFLINE: '1' });
   const d = await Daemon.create({ env, selftest: true });
@@ -125,7 +128,7 @@ test('the vault is off limits to file tools, and secrets are redacted from every
     const secret = 'tok_live_zzzzzzzzzzzzzzzzzz';
     t.d.vault.set('DEMO_TOKEN', secret);
     const masterKey = fs.readFileSync(t.d.paths.masterKey, 'utf8').trim();
-    // an earlier accident left a secret in a workspace file; the model was never told the value
+    // an earlier accident left a secret in a workspace file, the model was never told the value
     fs.writeFileSync(path.join(t.d.paths.workspace, 'note.txt'), `remember: ${secret}\n`);
     steps.push(
       { tool: { name: 'bash', input: { command: 'cat note.txt' } } },

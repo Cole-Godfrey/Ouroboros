@@ -1,12 +1,12 @@
-// Encrypted secret store (AES-256-GCM).
+// encrypted secret store (AES-256-GCM).
 //
-// Purpose: keep API keys and wallet keys out of plaintext files, out of the git
-// repository, out of logs and out of the model's context window. Secrets are
+// purpose: keep API keys and wallet keys out of plaintext files, out of the git
+// repository, out of logs and out of the model's context window. secrets are
 // handed to processes as environment variables only for the lifetime of that
 // process, and every outbound string passes through the redactor.
 //
-// Honest limit: the agent has root inside its own VM, so it *can* read its keys
-// if it goes looking. The vault prevents accidents, not intent. Scope every key
+// honest limit: the agent has root inside its own VM, so it *can* read its keys
+// if it goes looking. the vault prevents accidents, not intent. scope every key
 // (no withdrawal rights, per-strategy sub-accounts) as if the agent could read it.
 
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto';
@@ -43,6 +43,9 @@ export const SECRET_NAME_RE = /^[A-Z][A-Z0-9_]{1,63}$/;
 
 export class VaultError extends Error {}
 
+// secrets live in one encrypted file (aes-256-gcm). the key comes from a key file next to it,
+// or from a passphrase in the environment. every change also refreshes the redactor, so a new secret is
+// masked in all output immediately.
 export class Vault {
   private paths: Pick<Paths, 'vaultDir' | 'vaultFile' | 'masterKey'>;
   private clock: Clock;
@@ -59,7 +62,7 @@ export class Vault {
     this.passphrase = opts.passphrase ?? process.env.OURO_VAULT_PASSPHRASE;
   }
 
-  /** Create the key file (keyfile mode) if neither it nor a passphrase exists. Idempotent. */
+  /** create the key file (keyfile mode) if neither it nor a passphrase exists. idempotent. */
   init(): void {
     ensureDir(this.paths.vaultDir, 0o700);
     try {
@@ -122,6 +125,7 @@ export class Vault {
     writeFileAtomic(this.paths.vaultFile, JSON.stringify(out) + '\n', 0o600);
   }
 
+  // read-modify-write under a lock so two processes cannot overwrite each other's changes
   private mutate<T>(fn: (p: Plain) => T): T {
     this.init();
     return withLockSync(this.lockDir(), () => {
@@ -137,7 +141,7 @@ export class Vault {
     this.redactor.setSecrets(Object.entries(p.secrets).map(([n, s]) => [n, s.value]));
   }
 
-  /** Load every secret value into the redactor (call at process start). */
+  /** load every secret value into the redactor (call at process start). */
   loadRedactor(): number {
     try {
       const p = this.read();
@@ -181,7 +185,7 @@ export class Vault {
     });
   }
 
-  /** Environment variables for the requested secret names. Missing ones are reported, not thrown. */
+  /** environment variables for the requested secret names. missing ones are reported, not thrown. */
   env(names: string[]): { env: Record<string, string>; missing: string[] } {
     const p = this.read();
     const env: Record<string, string> = {};

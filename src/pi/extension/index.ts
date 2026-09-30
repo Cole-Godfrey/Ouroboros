@@ -1,11 +1,11 @@
-// The agent's window into Ouroboros: a Pi extension that adds the tools an
+// the agent's window into Ouroboros: a Pi extension that adds the tools an
 // autonomous capital-growth agent needs (ledger, inbox, venues, strategies,
 // self-modification, secrets), injects the Charter and Constitution into every
 // system prompt, redacts secrets from tool output, and keeps the LLM traffic
 // flowing through the metering proxy.
 //
-// Loaded by the daemon's episode runner with `pi -e <this file>`. Everything the
-// tools do goes through the daemon's local API; the extension holds no state.
+// loaded by the daemon's episode runner with `pi -e <this file>`. everything the
+// tools do goes through the daemon's local API, the extension holds no state.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -16,17 +16,20 @@ import { PROVIDERS } from '../../core/llm.ts';
 import { callApi, DaemonUnavailable } from './api.ts';
 import { webFetch } from './web.ts';
 
+// where this release lives, and the state directory. the daemon sets both in pi's environment.
 const ROOT = process.env.OURO_ROOT ?? path.resolve(import.meta.dirname, '..', '..', '..');
 const HOME = process.env.OURO_HOME ?? '';
 
 // ---------------------------------------------------------------- helpers
 
+// small helpers to shape tool results for pi
 const text = (s: string, details?: unknown) => ({ content: [{ type: 'text' as const, text: s }], details });
 const json = (o: unknown, max = 14_000) => {
   const s = JSON.stringify(o, null, 2);
   return text(s.length > max ? s.slice(0, max) + `\n… (truncated ${s.length - max} chars; narrow the query)` : s, o);
 };
 
+// ask the daemon to scrub secrets from text. if it is unreachable, return the text unchanged.
 async function redact(t: string): Promise<string> {
   if (!t || !process.env.OURO_SOCK) return t;
   try {
@@ -41,6 +44,7 @@ const opt = <T extends ReturnType<typeof Type.String>>(s: T) => Type.Optional(s)
 
 // ------------------------------------------------------------------ tools
 
+// each tool below is a thin wrapper that calls the daemon's api. the extension keeps no state.
 const statusTool = defineTool({
   name: 'ouro_status',
   label: 'Status',
@@ -119,6 +123,7 @@ const inboxTool = defineTool({
   },
 });
 
+// ending an episode hands a note to the next one. terminate stops the turn loop after this call.
 const episodeEndTool = defineTool({
   name: 'episode_end',
   label: 'End episode',
@@ -324,6 +329,26 @@ const selfmodTool = defineTool({
   },
 });
 
+const modelTool = defineTool({
+  name: 'model',
+  label: 'Model',
+  description:
+    "See and change the model you think with. You start on a free model, so thinking costs nothing; paid models are smarter but every token comes out of your own capital. Actions: 'status' (current model, whether it is free, whether the provider key is in the vault, who pays), 'set' (model, optional provider, cheap_model for routine wake-ups, thinking level). A paid model needs its provider key in the vault: if it is missing the call tells you the exact `ouro secret set NAME` to request from the operator through the inbox. While your daily allowance is too small to cover a paid episode the switch is refused. To find good free models, read https://openrouter.ai/api/v1/models with web_fetch (free ones have zero prices or an id ending in :free). Change model only when the gain in decisions is worth the cost (skill 'model-selection'); the change applies from your next episode.",
+  promptSnippet: 'see or switch the model you think with (free by default; paid comes out of capital)',
+  parameters: Type.Object({
+    action: Type.Union([Type.Literal('status'), Type.Literal('set')]),
+    model: opt(Type.String({ description: "for set: the model id as the provider expects it, e.g. 'claude-sonnet-5-5' or 'qwen/qwen3-coder:free'" })),
+    provider: opt(Type.String({ description: 'for set: provider id, e.g. anthropic, openai, openrouter (default: keep the current one)' })),
+    cheap_model: opt(Type.String({ description: 'for set: model for routine wake-ups' })),
+    thinking: opt(Type.String({ description: 'for set: off, minimal, low, medium, high, xhigh or max' })),
+  }),
+  async execute(_id, p) {
+    if (p.action === 'status') return json(await callApi('GET', '/v1/model'));
+    if (!p.model) throw new Error('set needs a model');
+    return json(await callApi('POST', '/v1/model', { model: p.model, provider: p.provider, cheapModel: p.cheap_model, thinking: p.thinking, by: 'agent' }));
+  },
+});
+
 const secretExecTool = defineTool({
   name: 'secret_exec',
   label: 'Run with secrets',
@@ -353,7 +378,7 @@ const secretListTool = defineTool({
   parameters: Type.Object({}),
   async execute() {
     const r = await callApi<{ secrets: any[] }>('GET', '/v1/secrets');
-    return text(r.secrets.map((s) => `${s.name}${s.note ? ` — ${s.note}` : ''} (set ${new Date(s.updatedAt).toISOString().slice(0, 16)}Z)`).join('\n') || '(vault is empty)');
+    return text(r.secrets.map((s) => `${s.name}${s.note ? `: ${s.note}` : ''} (set ${new Date(s.updatedAt).toISOString().slice(0, 16)}Z)`).join('\n') || '(vault is empty)');
   },
 });
 
@@ -375,16 +400,20 @@ const IDENTITY = `You are Ouroboros: an autonomous economic agent running on a m
 
 You work in episodes. Each begins with a briefing built from an independent ledger and ends when you call episode_end with a handoff note. Between episodes, programs you have written keep running. The Charter below is binding and belongs to your operator; the Constitution below is your own operating manual and you may improve it. Be concise and factual; show file paths and numbers.`;
 
+// set once the agent calls episode_end, so the reminder below only fires when it forgot
 let endCalled = false;
 
+// registers the tools and hooks. pi calls this once per session.
 export default function ouroboros(pi: ExtensionAPI) {
-  for (const t of [statusTool, ledgerTool, inboxTool, episodeEndTool, wakeTool, journalTool, venueTool, recordTool, strategyTool, selfmodTool, secretExecTool, secretListTool, webTool]) pi.registerTool(t);
+  for (const t of [statusTool, ledgerTool, inboxTool, episodeEndTool, wakeTool, journalTool, venueTool, recordTool, strategyTool, selfmodTool, modelTool, secretExecTool, secretListTool, webTool]) pi.registerTool(t);
 
-  // Route model traffic through the metering proxy when the daemon provides one.
+  // route model traffic through the metering proxy when the daemon provides one.
+  // send model traffic through the metering proxy when the daemon provides one
   const proxy = process.env.OURO_LLM_PROXY_URL;
   if (proxy) for (const [name, spec] of Object.entries(PROVIDERS)) pi.registerProvider(name, { baseUrl: `${proxy}/${name}${spec.basePath}` });
 
-  // The Charter and Constitution are part of every system prompt.
+  // the Charter and Constitution are part of every system prompt.
+  // the charter and constitution are part of every system prompt, so the agent cannot claim it never saw them
   pi.on('before_agent_start', (event) => {
     const read = (f: string) => {
       try {
@@ -404,8 +433,10 @@ export default function ouroboros(pi: ExtensionAPI) {
     if (local) s.constitution_local = local;
   });
 
-  // Speed bumps: keep the model away from credentials by accident. (The agent has root in its own VM,
-  // so this prevents mistakes, not intent; scope every key as if the agent could read it.)
+  // speed bumps: keep the model away from credentials by accident. (The agent has root in its own VM,
+  // so this prevents mistakes, not intent, scope every key as if the agent could read it.)
+  // speed bumps that keep the model away from credential files by accident.
+  // the agent has root in its own vm, so this prevents mistakes, not intent.
   const protectedPath = /(\/vault\/|secrets\.enc\.json|master\.key|\/auth\.json|charter\.sha256)/;
   pi.on('tool_call', (event) => {
     if (!['read', 'edit', 'write', 'grep', 'find', 'ls', 'bash'].includes(event.toolName)) return;
@@ -414,7 +445,8 @@ export default function ouroboros(pi: ExtensionAPI) {
     }
   });
 
-  // Every tool result passes through the redactor before it can reach the model.
+  // every tool result passes through the redactor before it can reach the model.
+  // every tool result passes through the redactor before it can reach the model
   pi.on('tool_result', async (event) => {
     const content = event.content ?? [];
     let changed = false;
@@ -429,8 +461,9 @@ export default function ouroboros(pi: ExtensionAPI) {
     return changed ? { content: out } : undefined;
   });
 
-  // If the agent tries to stop without handing over, ask once.
+  // if the agent tries to stop without handing over, ask once.
   let reminders = 0;
+  // if the agent tries to stop without handing over, ask once
   pi.on('agent_before_settle', () => {
     if (endCalled || reminders >= 1 || !process.env.OURO_EPISODE) return;
     reminders++;

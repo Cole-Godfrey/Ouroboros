@@ -1,4 +1,6 @@
-// The daemon on its own: real Daemon (all loops), real Pi, scripted model, mock ntfy, mock RPC node.
+// end to end: a real daemon with a scripted model, fake notification server and fake chain rpc.
+
+// the daemon on its own: real Daemon (all loops), real Pi, scripted model, mock ntfy, mock RPC node.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -64,7 +66,8 @@ test('the daemon runs the genesis episode by itself, notifies the operator, mete
   // configuration and keys exist before the daemon starts, as after `ouro init`
   fs.mkdirSync(e.paths.home, { recursive: true });
   fs.writeFileSync(e.paths.config, JSON.stringify({
-    llm: { proxy: true, proxyPort: 0, upstreams: { anthropic: model.url } },
+    llm: { provider: 'anthropic', model: 'claude-sonnet-5-5', cheapModel: 'claude-haiku-4-5', proxy: true, proxyPort: 0, upstreams: { anthropic: model.url } },
+    budget: { mode: 'sponsor' },
     schedule: { minGapSec: 1 },
     dashboard: { port: 0 },
     notify: { ntfy: { server: ntfy.url, topic: 'test-topic', replyTopic: 'test-topic-reply' } },
@@ -105,7 +108,7 @@ test('the daemon runs the genesis episode by itself, notifies the operator, mete
     assert.ok(d.store.state.llm.sponsorUsd > 0);
     assert.ok(d.store.state.llm.entries.every((x) => x.funding === 'sponsor'));
 
-    // the agent asked for a wake-up in an hour; the scheduler persisted it
+    // the agent asked for a wake-up in an hour, the scheduler persisted it
     assert.ok(d.store.state.pendingWakes().some((w) => /check balance/.test(w.reason) && w.tier === 'cheap'));
 
     // the reconciler produced a NAV point from the (mock) chain

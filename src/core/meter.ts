@@ -1,19 +1,20 @@
-// LLM cost accounting and the budget gate.
+// cost accounting for model calls, and the budget gate.
 //
-// Thinking is the agent's biggest running cost, and at $1 of capital it dwarfs
-// everything else. Two funding modes:
+// thinking is the agent's biggest running cost, and at $1 of capital it dwarfs
+// everything else. two funding modes:
 //
-//   sponsor  the operator pays for inference. It is tracked as "subsidy" and never
+//   sponsor  the operator pays for inference. it is tracked as "subsidy" and never
 //            touches NAV, but a hard daily/total cap (set by the operator, ideally
 //            also at the provider) stops runaway spend.
 //   capital  the agent pays out of its own capital (prepaid credits are a venue, so
-//            consumption shows up as a NAV decrease). Spend is capped at a % of NAV/day.
+//            consumption shows up as a NAV decrease). spend is capped at a % of NAV/day.
 //
-// The switch from sponsor to capital is the operator's decision.
+// the switch from sponsor to capital is the operator's decision.
 
 import type { EffectiveBudget, Limits, OuroConfig } from '../lib/config.ts';
 import { effectiveBudget } from '../lib/config.ts';
 import { localDate, systemClock, type Clock } from '../lib/clock.ts';
+import { isFreeModel } from './llm.ts';
 import { roundUsd } from '../lib/money.ts';
 import type { StateStore } from './state.ts';
 
@@ -24,7 +25,7 @@ export interface Pricing {
   cacheWrite: number;
 }
 
-/** USD per million tokens. Source: the Pi model catalog (Sept 2026). Editable in $OURO_HOME/pricing.json. */
+/** dollars per million tokens. source: the Pi model catalog (Sept 2026). editable in $OURO_HOME/pricing.json. */
 export const DEFAULT_PRICING: Record<string, Pricing> = {
   'claude-sonnet-5-5': { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
   'claude-sonnet-5': { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
@@ -37,7 +38,7 @@ export const DEFAULT_PRICING: Record<string, Pricing> = {
   'claude-opus-4-8': { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
 };
 
-/** Unknown models are billed at the most expensive known rate so spend is never under-counted. */
+/** unknown models are billed at the most expensive known rate so spend is never under-counted. */
 export const FALLBACK_PRICING: Pricing = { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 };
 
 export interface Usage {
@@ -47,7 +48,10 @@ export interface Usage {
   cacheWrite: number;
 }
 
+const FREE_PRICING: Pricing = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+
 export function priceFor(model: string, table: Record<string, Pricing>): Pricing {
+  if (isFreeModel(model)) return FREE_PRICING;
   const m = model.toLowerCase().replace(/^anthropic\//, '');
   if (table[m]) return table[m];
   // dated variants: claude-haiku-4-5-20251001 -> claude-haiku-4-5
@@ -82,6 +86,8 @@ export interface MeterDeps {
   clock?: Clock;
 }
 
+// // turns token usage into dollars, books it to whoever pays, and answers one question for everyone else:
+// // may the agent think right now, and how much may this episode spend?
 export class Meter {
   private d: MeterDeps;
   private clock: Clock;
@@ -103,7 +109,7 @@ export class Meter {
     return costOf(model, usage, this.d.pricing?.() ?? DEFAULT_PRICING);
   }
 
-  /** Append an llm.usage event. `costUsd` overrides the computed cost (e.g. when the provider reported one). */
+  /** append an llm.usage event. `costUsd` overrides the computed cost (e.g. when the provider reported one). */
   record(u: { provider: string; model: string; usage: Usage; costUsd?: number; episode?: string; source: 'proxy' | 'pi' }): { costUsd: number; funding: 'sponsor' | 'capital' } {
     const funding = this.fundingSource();
     const costUsd = roundUsd(u.costUsd ?? this.cost(u.model, u.usage));
@@ -122,6 +128,7 @@ export class Meter {
     return { costUsd, funding };
   }
 
+  // // the daily limit is fixed in sponsor mode and a share of nav in capital mode
   status(): BudgetStatus {
     const st = this.d.store;
     st.sync();
@@ -139,7 +146,9 @@ export class Meter {
     const remainingToday = roundUsd(Math.max(0, dailyLimit - spentToday));
     const remainingTotal = b.totalUsd === null ? null : roundUsd(Math.max(0, b.totalUsd - spentTotal));
     let reason: string | undefined;
-    if (remainingToday <= 0) reason = `daily ${b.mode} budget of $${dailyLimit.toFixed(2)} is spent`;
+    // a free model costs nothing, so an empty budget never stops the agent from thinking
+    if (isFreeModel(cfg.llm.model)) reason = undefined;
+    else if (remainingToday <= 0) reason = `daily ${b.mode} budget of $${dailyLimit.toFixed(2)} is spent`;
     else if (remainingTotal !== null && remainingTotal <= 0) reason = `total ${b.mode} budget of $${b.totalUsd!.toFixed(2)} is spent`;
     return {
       mode: b.mode,
@@ -155,9 +164,10 @@ export class Meter {
     };
   }
 
-  /** Dollars the next episode may spend: the tightest of per-episode, daily-remaining and total-remaining. */
+  /** dollars the next episode may spend: the tightest of per-episode, daily-remaining and total-remaining. */
   episodeBudgetUsd(): number {
     const s = this.status();
+    if (isFreeModel(this.d.config().llm.model)) return s.perEpisodeUsd;
     const caps = [s.perEpisodeUsd, s.remainingTodayUsd];
     if (s.remainingTotalUsd !== null) caps.push(s.remainingTotalUsd);
     return roundUsd(Math.max(0, Math.min(...caps)));
@@ -166,7 +176,7 @@ export class Meter {
   canStartEpisode(): { ok: boolean; reason?: string } {
     const s = this.status();
     if (s.exhausted) return { ok: false, reason: s.reason };
-    if (this.episodeBudgetUsd() < 0.005) return { ok: false, reason: 'remaining budget too small to run an episode' };
+    if (!isFreeModel(this.d.config().llm.model) && this.episodeBudgetUsd() < 0.005) return { ok: false, reason: 'remaining budget too small to run an episode' };
     return { ok: true };
   }
 }

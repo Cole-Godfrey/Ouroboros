@@ -1,6 +1,7 @@
-// Money helpers. Amounts are plain numbers in USD, rounded to micro-dollars at
+// money helpers. amounts are plain numbers in USD, rounded to micro-dollars at
 // the edges so accumulated floating point error cannot creep into the books.
 
+// round to micro-dollars so float noise never accumulates in the ledger
 export function roundUsd(n: number): number {
   if (!Number.isFinite(n)) return 0;
   return Math.round(n * 1e6) / 1e6;
@@ -22,7 +23,7 @@ export function fmtPct(x: number, digits = 2): string {
   return `${(x * 100).toFixed(digits)}%`;
 }
 
-/** Parse "$1.50", "1,5", "1.5" style operator input. Throws on garbage. */
+/** parse "$1.50", "1,5", "1.5" style operator input. throws on garbage. */
 export function parseUsd(input: string): number {
   const cleaned = input.trim().replace(/^\$/, '').replace(/,/g, '');
   const n = Number(cleaned);

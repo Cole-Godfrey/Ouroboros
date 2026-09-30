@@ -20,6 +20,7 @@ export interface LoggerOptions {
   maxBytes?: number;
 }
 
+// a plain line logger with levels. every line is passed through the redactor before it is written.
 export function createLogger(scope: string, opts: LoggerOptions = {}): Logger {
   const level = opts.level ?? ((process.env.OURO_LOG_LEVEL as Level) || 'info');
   const stderr = opts.stderr ?? true;
@@ -66,6 +67,7 @@ export function createLogger(scope: string, opts: LoggerOptions = {}): Logger {
   };
 }
 
+// a logger that discards everything, for tests and optional dependencies
 export const nullLogger: Logger = {
   debug() {},
   info() {},

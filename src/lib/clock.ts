@@ -1,4 +1,4 @@
-// Time helpers. Every service takes an injectable Clock so tests can control time.
+// time helpers. every service takes an injectable Clock so tests can control time.
 
 export type Clock = () => number;
 
@@ -17,12 +17,14 @@ export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-/** Blocking sleep. Only for short waits in synchronous lock loops. */
+/** blocking sleep. only for short waits in synchronous lock loops. */
+// block the thread briefly. only used while waiting for a file lock.
 export function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-/** YYYY-MM-DD for a timestamp in the given IANA timezone (falls back to UTC). */
+/** the date as YYYY-MM-DD for a timestamp in the given IANA timezone (falls back to UTC). */
+// the calendar day in the operator's timezone. daily budgets reset at local midnight.
 export function localDate(ts: number, timeZone?: string): string {
   try {
     return new Intl.DateTimeFormat('en-CA', {
@@ -44,7 +46,7 @@ export function iso(ts: number): string {
   return new Date(ts).toISOString();
 }
 
-/** "3h 12m", "45s", "2d 4h" — for humans. */
+/** "3h 12m", "45s", "2d 4h", for humans. */
 export function fmtDuration(ms: number): string {
   if (!Number.isFinite(ms)) return 'n/a';
   const neg = ms < 0;

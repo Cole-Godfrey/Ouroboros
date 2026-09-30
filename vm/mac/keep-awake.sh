@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Keep the Mac from sleeping while the agent runs (a sleeping Mac freezes the VM, and with it any open
-# positions' monitoring). Uses a LaunchAgent running `caffeinate`.
+# keep the Mac from sleeping while the agent runs (a sleeping Mac freezes the VM, and with it any open
+# positions' monitoring). uses a LaunchAgent running `caffeinate`.
 #
 #   keep-awake.sh install | uninstall | status
 #
-# Note: closing a laptop lid still sleeps it unless it is on power with an external display.
+# note: closing a laptop lid still sleeps it unless it is on power with an external display.
 set -euo pipefail
 LABEL=com.ouroboros.keepawake
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"

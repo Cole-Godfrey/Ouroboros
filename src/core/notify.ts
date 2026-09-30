@@ -1,8 +1,8 @@
-// Operator notifications: agent -> phone (ntfy, Telegram) and replies back.
+// operator notifications: agent -> phone (ntfy, Telegram) and replies back.
 //
-// Trust levels: the CLI and a chat-id-locked Telegram bot are authoritative.
+// trust levels: the CLI and a chat-id-locked Telegram bot are authoritative.
 // ntfy replies arrive on a topic anyone who guesses it could write to, so they
-// are marked untrusted; the agent is told to treat them as hints, never as
+// are marked untrusted, the agent is told to treat them as hints, never as
 // authorisation for anything involving money.
 
 import type { InboxItem } from './state.ts';
@@ -27,7 +27,7 @@ export interface InboundMessage {
   trusted: boolean;
   text: string;
   ts: number;
-  /** Set when the reply targets a specific inbox item. */
+  /** set when the reply targets a specific inbox item. */
   targetId?: string;
 }
 
@@ -52,7 +52,7 @@ export function formatMessage(msg: OutMessage): string {
   return lines.join('\n');
 }
 
-/** "#a3f9 done" -> {id:"a3f9", text:"done"}. Also finds "#a3f9" inside the quoted message being replied to. */
+/** "#a3f9 done" -> {id:"a3f9", text:"done"}. also finds "#a3f9" inside the quoted message being replied to. */
 export function parseReplyTarget(text: string, quoted?: string): { id?: string; text: string } {
   const m = /^\s*#([0-9a-f]{4})\b[:\s-]*([\s\S]*)$/i.exec(text);
   if (m) return { id: m[1].toLowerCase(), text: m[2].trim() || text.trim() };
@@ -73,6 +73,7 @@ export interface NtfyOptions {
   since?: string;
 }
 
+// ntfy: a public topic with a random name acts as the password. replies are untrusted because anyone who learns the topic can post.
 export class NtfyChannel implements Channel {
   readonly name = 'ntfy';
   readonly trusted = false;
@@ -137,6 +138,7 @@ export interface TelegramOptions {
   apiBase?: string;
 }
 
+// telegram: replies are trusted only when they come from the chat id the operator linked.
 export class TelegramChannel implements Channel {
   readonly name = 'telegram';
   readonly trusted = true;
@@ -182,7 +184,7 @@ export class TelegramChannel implements Channel {
     return out;
   }
 
-  /** Helper for `ouro init`: the chat id of whoever last messaged the bot. */
+  /** helper for `ouro init`: the chat id of whoever last messaged the bot. */
   static async discoverChatId(token: string, apiBase = 'https://api.telegram.org'): Promise<string | undefined> {
     const res = await fetchJson<{ result: Array<{ message?: { chat: { id: number | string } } }> }>(`${apiBase}/bot${token}/getUpdates?timeout=0`, { timeoutMs: 15_000 });
     const last = [...(res.result ?? [])].reverse().find((u) => u.message?.chat?.id !== undefined);
@@ -192,6 +194,7 @@ export class TelegramChannel implements Channel {
 
 // -------------------------------------------------------------- notifier
 
+// sends to every configured channel and never throws, so a failing channel cannot stop the daemon
 export class Notifier {
   readonly channels: Channel[];
   private log: Logger;
@@ -244,7 +247,8 @@ export class Notifier {
 
 // --------------------------------------------------------------- service
 
-/** Glue between the inbox and the notifier: pushes new items, ingests replies. Driven by `tick()`. */
+/** glue between the inbox and the notifier: pushes new items, ingests replies. driven by `tick()`. */
+// glue between the inbox and the channels: push new items out, pull operator replies in
 export class NotifyService {
   private store: StateStore;
   private inbox: Inbox;
@@ -263,6 +267,7 @@ export class NotifyService {
     return this.getNotifier();
   }
 
+  // push each item once, only while it is open, and never the operator's own messages or throttled items
   private shouldPush(it: InboxItem, now: number): boolean {
     if (it.pushedAt || it.throttled || it.from === 'operator') return false;
     if (it.status !== 'open') return false;
@@ -297,7 +302,8 @@ export class NotifyService {
     return n;
   }
 
-  /** Pull replies from every channel and record them. Returns how many messages were ingested. */
+  /** pull replies from every channel and record them. returns how many messages were ingested. */
+  // a reply goes to the item it names, or to the only open request. otherwise it becomes a new message to the agent.
   async ingest(): Promise<number> {
     if (!this.notifier.enabled) return 0;
     const msgs = await this.notifier.pollAll();

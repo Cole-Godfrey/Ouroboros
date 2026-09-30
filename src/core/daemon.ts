@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The Ouroboros daemon: composition root and main loops.
+// the Ouroboros daemon: composition root and main loops.
 //
 //   scheduler  -> decides when the agent thinks   -> runner (Pi) -> episodes
 //   reconciler -> asks every venue what it holds  -> NAV points in the audit log
@@ -8,7 +8,7 @@
 //   selfmod    -> probation / confirmation of promoted releases
 //   api        -> unix socket (full) + localhost TCP (read-only dashboard)
 //
-// Exit codes: 0 = operator-requested stop; 75 = restart me into `current`.
+// exit codes: 0 = operator-requested stop, 75 = restart me into `current`.
 
 import fs from 'node:fs';
 import http from 'node:http';
@@ -26,7 +26,7 @@ import { checkCharter, charterSha } from './charter.ts';
 import { EventLog } from './eventlog.ts';
 import { Inbox } from './inbox.ts';
 import { LlmProxy } from './llm-proxy.ts';
-import { PROVIDERS } from './llm.ts';
+import { FREE_ROUTER, isFreeModel, PROVIDERS, providerKeyEnv } from './llm.ts';
 import { Meter, DEFAULT_PRICING, type Pricing } from './meter.ts';
 import { NtfyChannel, Notifier, NotifyService, TelegramChannel, type Channel } from './notify.ts';
 import { PriceOracle } from './prices.ts';
@@ -39,15 +39,19 @@ import { StateStore } from './state.ts';
 import { Vault } from './vault.ts';
 import { runVenueMethod } from './venues/run.ts';
 
+// exit code that tells the boot supervisor to start the daemon again from the current release
 export const EXIT_RESTART = 75;
 const VERSION = '0.1.0';
 
 export interface DaemonOptions {
   env?: NodeJS.ProcessEnv;
-  /** Boot-check mode used by the self-modification gate: no agent, no timers, ephemeral ports. */
+  /** boot-check mode used by the self-modification gate: no agent, no timers, ephemeral ports. */
   selftest?: boolean;
   clock?: Clock;
 }
+
+/** smallest daily inference allowance (usd) at which switching to a paid model is allowed */
+const MIN_PAID_MODEL_DAILY_USD = 0.25;
 
 export class Daemon {
   readonly paths: Paths;
@@ -133,6 +137,7 @@ export class Daemon {
     this.notifyService = new NotifyService(this.store, this.inbox, () => this.currentNotifier(), this.log.child('notify'));
   }
 
+  // the constructor is private because setup is async (sockets, proxy, charter check)
   static async create(opts: DaemonOptions = {}): Promise<Daemon> {
     const d = new Daemon(opts);
     await d.init();
@@ -141,6 +146,7 @@ export class Daemon {
 
   // ------------------------------------------------------------ config
 
+  // config is cached and re-read when the file changes, so edits apply without a restart
   cfg(): OuroConfig {
     try {
       const st = fs.statSync(this.paths.config);
@@ -151,7 +157,9 @@ export class Daemon {
     return this.cfgCache.value;
   }
 
-  /** Operator limits: /etc file merged with those the operator set via the CLI. The stricter value wins; the agent can raise neither. */
+  /** operator limits: /etc file merged with those the operator set via the CLI. the stricter value wins, the agent can raise neither. */
+  // the lowest of the root-owned file and the operator's audit-log entries wins.
+  // the agent can edit config.json but not these, so it cannot raise its own budget.
   limits(): Limits {
     let file: Limits = {};
     try {
@@ -170,12 +178,46 @@ export class Daemon {
     return { ...DEFAULT_PRICING, ...readJson<Record<string, Pricing>>(this.paths.pricing, {}) };
   }
 
+  // merge a partial config into the file on disk and drop the cache
   patchConfig(patch: unknown): OuroConfig {
     const onDisk = readJson<Record<string, unknown>>(this.paths.config, {});
     const next = deepMerge(onDisk, patch);
     writeJson(this.paths.config, next);
     this.cfgCache = undefined;
     return this.cfg();
+  }
+
+  /** the model in use, whether it is free, and whether its provider key is in the vault */
+  modelInfo() {
+    const { llm, budget } = this.cfg();
+    const keyName = providerKeyEnv(llm.provider);
+    return { provider: llm.provider, model: llm.model, cheapModel: llm.cheapModel, thinking: llm.thinking, free: isFreeModel(llm.model), keyName, keyPresent: !!keyName && this.vault.has(keyName), fundedBy: budget.mode };
+  }
+
+  /**
+   * switch the model the agent thinks with. a paid model needs its provider key in the
+   * vault and, when the agent pays from its own capital, enough NAV that the daily cap
+   * (a share of NAV) can actually cover an episode. otherwise the agent could lock itself out.
+ */
+  setModel(o: { provider?: string; model: string; cheapModel?: string; thinking?: string; by: string }): { ok: boolean; reason?: string; model?: ReturnType<Daemon['modelInfo']> } {
+    const cfg = this.cfg();
+    const provider = o.provider ?? cfg.llm.provider;
+    const keyName = providerKeyEnv(provider);
+    if (!keyName) return { ok: false, reason: `unknown provider "${provider}"` };
+    if (!this.vault.has(keyName)) return { ok: false, reason: `${keyName} is not in the vault. ask the operator with the inbox tool to run: ouro secret set ${keyName}` };
+    const free = isFreeModel(o.model);
+    if (!free && cfg.budget.mode === 'capital') {
+      const cap = this.meter.status().dailyLimitUsd;
+      if (cap < MIN_PAID_MODEL_DAILY_USD) return { ok: false, reason: `a paid model needs a daily inference allowance of at least $${MIN_PAID_MODEL_DAILY_USD.toFixed(2)} and yours is $${cap.toFixed(2)} (${(cfg.budget.capitalMaxDailyPctNav * 100).toFixed(0)}% of NAV). stay on a free model until NAV grows` };
+    }
+    const llm: Record<string, string> = { provider, model: o.model };
+    // when the provider changes, the routine tier follows unless told otherwise
+    if (o.cheapModel) llm.cheapModel = o.cheapModel;
+    else if (provider !== cfg.llm.provider || free) llm.cheapModel = o.model;
+    if (o.thinking) llm.thinking = o.thinking;
+    this.patchConfig({ llm });
+    this.store.append('model.set', { provider, model: o.model, free, by: o.by });
+    return { ok: true, model: this.modelInfo() };
   }
 
   wallets(): unknown {
@@ -205,7 +247,8 @@ export class Daemon {
 
   // ----------------------------------------------------------- alerts
 
-  /** System-originated inbox alert, at most once per key per day. */
+  /** system-originated inbox alert, at most once per key per day. */
+  // one inbox alert per kind per day, so a persistent problem does not spam the operator
   alert(key: string, title: string, body: string, urgency: 'low' | 'normal' | 'high' = 'high'): void {
     const day = new Date(this.clock()).toISOString().slice(0, 10);
     const k = `${key}:${day}`;
@@ -215,6 +258,7 @@ export class Daemon {
     this.log.warn(`alert: ${title}`);
   }
 
+  // restart is deferred until the agent is between episodes, with a 15 minute upper bound (see mainTick)
   requestRestart(reason: string): void {
     this.restartAsk ??= { reason, at: this.clock() };
     this.log.info(`restart requested: ${reason}`);
@@ -249,7 +293,8 @@ export class Daemon {
     }
   }
 
-  /** First-run: copy the seed memory (GENESIS.md and friends) and Pi defaults into the state directory. */
+  /** first-run: copy the seed memory (GENESIS.md and friends) and Pi defaults into the state directory. */
+  // first run: copy the seed memory and write the pi settings the agent starts from. existing files are never overwritten.
   private seedHome(): void {
     const seed = path.join(this.paths.root, 'agent', 'memory');
     try {
@@ -300,12 +345,14 @@ export class Daemon {
     this.log.info(`daemon up (release ${this.selfmod.runningSha()?.slice(0, 10) ?? 'unmanaged'}), socket ${this.paths.sock}${this.tcpPort ? `, dashboard 127.0.0.1:${this.tcpPort}` : ''}`);
   }
 
+  // background timers never keep the process alive on their own
   private every(ms: number, fn: () => void): void {
     const t = setInterval(fn, ms);
     t.unref();
     this.timers.push(t);
   }
 
+  // the supervisor watches this file. a stale heartbeat means the daemon is stuck and gets restarted.
   private heartbeat(): void {
     try {
       writeFileAtomic(this.paths.heartbeat, JSON.stringify({ pid: process.pid, ts: this.clock(), sha: this.selfmod.runningSha(), uptimeSec: Math.round((this.clock() - this.startedAt) / 1000), episode: this.runner.current()?.id ?? null }));
@@ -314,6 +361,8 @@ export class Daemon {
     }
   }
 
+  // two listeners: a unix socket with full access for the agent and cli (same user),
+  // and a read-only tcp port behind a token for the dashboard.
   private async listen(): Promise<void> {
     const handler = createApiHandler(this);
     // unix socket: full access
@@ -367,6 +416,9 @@ export class Daemon {
 
   // ------------------------------------------------------------ loops
 
+  // the daemon's single loop, every few seconds:
+  // supervise strategies, check the release on probation, restart if one is pending and the agent is idle,
+  // then ask the scheduler whether an episode should start.
   private async mainTick(): Promise<void> {
     if (this.stopping) return;
     try {
@@ -395,11 +447,20 @@ export class Daemon {
     }
   }
 
+  // alert the operator about failure streaks and budget stops, then re-check balances because money may have moved
   private afterEpisode(res: { outcome: string; error?: string }): void {
     const eps = this.store.state.episodes;
     const lastFive = eps.slice(-3);
     if (lastFive.length === 3 && lastFive.every((e) => ['error', 'stalled', 'timeout'].includes(e.outcome ?? ''))) {
       this.alert('episodes-failing', 'The agent has failed 3 episodes in a row', `Last error: ${lastFive.at(-1)?.error ?? res.error ?? 'unknown'}\nCheck \`ouro logs\` and \`ouro episodes\`. If a recent self-modification caused this it will be rolled back automatically.`, 'high');
+    }
+    // a pinned free model can vanish without notice. after failed episodes in a row, fall back to the free router
+    const cfg = this.cfg();
+    const lastTwo = eps.slice(-2);
+    if (lastTwo.length === 2 && lastTwo.every((e) => ['error', 'stalled', 'timeout'].includes(e.outcome ?? '')) && cfg.llm.provider === 'openrouter' && isFreeModel(cfg.llm.model) && cfg.llm.model !== FREE_ROUTER) {
+      this.patchConfig({ llm: { model: FREE_ROUTER } });
+      this.store.append('model.set', { provider: 'openrouter', model: FREE_ROUTER, free: true, by: 'system' });
+      this.alert('model-fallback', 'The free model failed, so the agent moved to the free router', `Two episodes in a row failed on ${cfg.llm.model}. It now uses ${FREE_ROUTER}, which picks any available free model. The agent can pin a better one with its model tool.`, 'low');
     }
     if (res.outcome === 'skipped' && res.error && /budget/.test(res.error)) this.alert('budget', 'The agent is paused: inference budget spent', `${res.error}. It resumes when the budget resets (midnight in ${this.cfg().operator.timezone}) or when you raise it with \`ouro budget set\`.`, 'normal');
     void this.reconcile(); // money may have moved during the episode
@@ -414,6 +475,7 @@ export class Daemon {
     }
   }
 
+  // slow checks: budget alerts, the graduation hint, and a daily verification of the audit log's hash chain
   private housekeeping(): void {
     if (this.stopping) return;
     try {
@@ -421,6 +483,7 @@ export class Daemon {
       if (s.blockedReason && /budget/.test(s.blockedReason)) this.alert('budget', 'The agent is paused: inference budget spent', `${s.blockedReason}. It resumes at midnight (${this.cfg().operator.timezone}) or when you raise the budget with \`ouro budget set\`.`, 'normal');
       const m = this.store.state.metrics(this.clock());
       const cfg = this.cfg();
+      // when the operator sponsors thinking, tell them once nav is large enough for the agent to pay for itself
       if (cfg.budget.mode === 'sponsor' && m.navUsd >= cfg.budget.graduationNavUsd) {
         this.alert('graduation', 'The agent can now afford to pay for its own thinking', `NAV is ${m.navUsd.toFixed(2)} USD, above the graduation threshold of ${cfg.budget.graduationNavUsd}. Switch inference to capital funding with \`ouro budget mode capital\` (the agent then pays for tokens out of its own NAV, capped at ${(cfg.budget.capitalMaxDailyPctNav * 100).toFixed(0)}% of NAV per day), or keep sponsoring it.`, 'low');
       }
@@ -436,7 +499,7 @@ export class Daemon {
 
   // ------------------------------------------------------------- stop
 
-  /** Stop loops and listeners without exiting the process (tests, smoke check). */
+  /** stop loops and listeners without exiting the process (tests, smoke check). */
   async close(): Promise<void> {
     this.stopping = true;
     for (const t of this.timers) clearInterval(t);

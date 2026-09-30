@@ -1,16 +1,18 @@
-// Child-process entry point that executes one method of one venue module and
-// prints the result. Usage (spawned by runVenueMethod, not by hand):
+// child-process entry point that executes one method of one venue module and
+// prints the result. usage (spawned by runVenueMethod, not by hand):
 //
 //   node venue-runner.ts <module-path> <method>
 //   env OURO_VENUE_INPUT = JSON {args, now, dataDir}
 //
-// The last stdout line starting with RESULT_MARKER carries the JSON result, so
+// the last stdout line starting with RESULT_MARKER carries the JSON result, so
 // adapters may log freely to stdout/stderr.
 
 import { pathToFileURL } from 'node:url';
 
+// the adapter's answer is printed after this marker, so stray log output cannot be mistaken for it
 export const RESULT_MARKER = '@@OURO_RESULT@@';
 
+// child-process entry point: load the adapter, call one method, print the json result and exit
 async function main(): Promise<void> {
   const [modulePath, method] = process.argv.slice(2);
   const input = JSON.parse(process.env.OURO_VENUE_INPUT ?? '{}') as { args?: unknown; now?: number; dataDir?: string };
@@ -35,7 +37,7 @@ async function main(): Promise<void> {
   }
 }
 
-// Only run when executed directly (importing RESULT_MARKER must not start work).
+// only run when executed directly (importing RESULT_MARKER must not start work).
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().then(
     () => process.exit(0),

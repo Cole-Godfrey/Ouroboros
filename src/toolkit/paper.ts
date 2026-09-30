@@ -1,6 +1,6 @@
-// A tiny paper-trading engine: the agent's sandbox for developing and testing
-// strategy code without risking capital. It models fees and slippage so results
-// are not flattering. State lives in one JSON file, so strategy processes and the
+// a tiny paper-trading engine: the agent's sandbox for developing and testing
+// strategy code without risking capital. it models fees and slippage so results
+// are not flattering. state lives in one JSON file, so strategy processes and the
 // `paper` venue adapter (which reports it to the reconciler) share it.
 
 import path from 'node:path';
@@ -25,13 +25,15 @@ export interface PaperState {
 }
 
 export interface PaperOptions {
-  /** Taker fee in basis points (default 10 = 0.10%). */
+  /** taker fee in basis points (default 10 = 0.10%). */
   feeBps?: number;
-  /** Adverse price movement on every fill, in basis points (default 5). */
+  /** adverse price movement on every fill, in basis points (default 5). */
   slippageBps?: number;
   clock?: () => number;
 }
 
+// a simulated exchange for testing strategies without money. it charges fees and slippage like a real one,
+// and its state lives in a file so a strategy can stop and resume.
 export class PaperExchange {
   readonly file: string;
   private feeBps: number;
@@ -71,7 +73,8 @@ export class PaperExchange {
     });
   }
 
-  /** Spend `usd` (fee included) on `symbol` at `marketPrice`. */
+  /** spend `usd` (fee included) on `symbol` at `marketPrice`. */
+  // buying slips the price up and takes the fee out of the amount spent, like a real market order
   buy(symbol: string, usd: number, marketPrice: number): PaperFill {
     return this.mutate((s) => {
       if (!(usd > 0) || !(marketPrice > 0)) throw new Error('bad order');
@@ -88,6 +91,7 @@ export class PaperExchange {
     });
   }
 
+  // selling slips the price down and pays a fee out of the proceeds
   sell(symbol: string, qty: number, marketPrice: number): PaperFill {
     return this.mutate((s) => {
       const have = s.positions[symbol] ?? 0;

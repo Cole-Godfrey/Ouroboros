@@ -1,3 +1,5 @@
+// tests for the last-resort supervisor: restarts, rollback during probation and heartbeat watchdog. the daemon is replaced by tiny scripts.
+
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -6,7 +8,7 @@ import path from 'node:path';
 import { Supervisor, EXIT_RESTART } from '../boot/ouro-boot.mjs';
 import { tmpDir } from './helpers.ts';
 
-/** A fake release directory whose "daemon" is a tiny script we control via files. */
+/** a fake release directory whose "daemon" is a tiny script we control via files. */
 function setup() {
   const home = tmpDir();
   const mkRelease = (name: string, script: string) => {

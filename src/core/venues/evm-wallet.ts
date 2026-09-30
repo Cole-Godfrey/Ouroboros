@@ -1,11 +1,11 @@
-// Reference venue adapter: balances of the agent's own EVM wallet.
+// reference venue adapter: balances of the agent's own EVM wallet.
 //
-// Reports the native gas token and USDC on the chains listed in
+// reports the native gas token and USDC on the chains listed in
 // $OURO_HOME/data/venues/evm-wallet/config.json (default: Base, Arbitrum,
-// Optimism, Polygon, Ethereum) using public RPC endpoints. Everything else the
+// optimism, Polygon, Ethereum) using public RPC endpoints. everything else the
 // wallet holds can be added as tokens in that config, or by extending this file.
 //
-// If ANY configured chain cannot be read the whole snapshot fails: a partial
+// if ANY configured chain cannot be read the whole snapshot fails: a partial
 // answer would look like a phantom loss.
 
 import fs from 'node:fs';
@@ -53,6 +53,8 @@ function readConfig(ctx: VenueContext): EvmConfig {
 const venue: VenueModule = {
   id: 'evm-wallet',
   description: "The agent's own EVM wallet: native gas token + USDC on Base, Arbitrum, Optimism, Polygon and Ethereum (configurable).",
+  // read the native balance and usdc on every configured chain.
+  // if any chain cannot be read the whole snapshot fails, because a partial answer would look like a loss.
   async snapshot(ctx) {
     const address = readAddress(ctx) as `0x${string}`;
     const cfg = readConfig(ctx);

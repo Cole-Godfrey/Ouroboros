@@ -1,7 +1,7 @@
-// Minimal client for Pi's RPC mode (JSONL over stdin/stdout).
-// Protocol reference: node_modules/@earendil-works/pi-coding-agent/docs/rpc.md
+// minimal client for Pi's RPC mode (JSONL over stdin/stdout).
+// protocol reference: node_modules/@earendil-works/pi-coding-agent/docs/rpc.md
 //
-// We speak the documented wire protocol directly (rather than importing Pi's
+// we speak the documented wire protocol directly (rather than importing Pi's
 // RpcClient) so the daemon controls process lifetime, backpressure and kill
 // escalation itself, and does not depend on Pi internals.
 
@@ -14,7 +14,7 @@ export interface PiEvent {
 }
 
 export interface PiSpawnOptions {
-  /** Executable to run (the `pi` binary, or `process.execPath` with the script as first arg). */
+  /** executable to run (the `pi` binary, or `process.execPath` with the script as first arg). */
   command: string;
   args: string[];
   env: Record<string, string>;
@@ -29,6 +29,8 @@ interface Pending {
   command: string;
 }
 
+// a thin client for pi's rpc mode: json lines over stdin and stdout.
+// requests carry an id and are matched to responses, everything else is an event for listeners.
 export class PiRpcError extends Error {}
 
 export class PiRpc {
@@ -56,7 +58,7 @@ export class PiRpc {
       }
     });
     child.stdin!.on('error', () => {
-      /* EPIPE after exit is expected */
+      /* a broken pipe after exit is expected */
     });
     this.exited = new Promise((resolve) => {
       child.on('close', (code, signal) => {
@@ -111,7 +113,8 @@ export class PiRpc {
     }
   }
 
-  /** Split on LF only (never on U+2028/2029, which are legal inside JSON strings). */
+  /** split on LF only (never on U+2028/2029, which are legal inside JSON strings). */
+  // split the stream on newlines only (never on unicode line separators, which can appear inside json)
   private onData(chunk: Buffer): void {
     this.buf = this.buf.length ? Buffer.concat([this.buf, chunk]) : chunk;
     let idx: number;
@@ -142,6 +145,7 @@ export class PiRpc {
     }
   }
 
+  // send a command and wait for the response with the same id, with a timeout
   request<T = any>(command: { type: string; [k: string]: any }, timeoutMs = 30_000): Promise<T> {
     if (this.hasExited) return Promise.reject(new PiRpcError('pi has exited'));
     const id = `r${this.nextId++}`;
@@ -169,7 +173,7 @@ export class PiRpc {
     await this.request({ type: 'abort' }, 20_000).catch(() => undefined);
   }
 
-  /** Orderly shutdown: close stdin, wait, then SIGTERM, then SIGKILL. */
+  /** orderly shutdown: close stdin, wait, then SIGTERM, then SIGKILL. */
   async stop(graceMs = 5000): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
     if (this.hasExited) return this.exitInfo!;
     try {

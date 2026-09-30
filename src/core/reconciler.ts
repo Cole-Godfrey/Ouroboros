@@ -1,11 +1,11 @@
-// The reconciler is the independent source of truth about money.
+// the reconciler is the independent source of truth about money.
 //
-// Every interval it asks each registered venue (in an isolated child process)
+// every interval it asks each registered venue (in an isolated child process)
 // what it actually holds, values the answer, and appends the result to the audit
-// log. The agent cannot edit these numbers and does not need to remember them;
+// log. the agent cannot edit these numbers and does not need to remember them;
 // if its belief disagrees with the reconciler, the reconciler wins.
 //
-// It also watches for the failure modes that matter most to a self-funded agent:
+// it also watches for the failure modes that matter most to a self-funded agent:
 // deposits mistaken for profit, sudden drops, venues that stopped answering,
 // and per-venue drawdown guards.
 
@@ -34,7 +34,7 @@ export interface ReconcilerDeps {
   config: () => OuroConfig;
   log?: Logger;
   clock?: Clock;
-  /** Called when a venue guard trips so the daemon can stop that venue's strategy. */
+  /** called when a venue guard trips so the daemon can stop that venue's strategy. */
   onGuardTripped?: (venue: VenueState, drawdown: number) => void | Promise<void>;
 }
 
@@ -51,7 +51,7 @@ export class Reconciler {
     this.clock = deps.clock ?? systemClock;
   }
 
-  /** Raise an incident unless an open one with the same key already exists. Returns its id if raised. */
+  /** raise an incident unless an open one with the same key already exists. returns its id if raised. */
   private raise(severity: 'info' | 'warn' | 'critical', kind: string, key: string, message: string, data?: unknown): string | undefined {
     const st = this.d.store.state;
     for (const i of st.incidents.values()) {
@@ -62,7 +62,8 @@ export class Reconciler {
     return id;
   }
 
-  /** Snapshot all enabled venues (or only the given ids) and append a NAV point. */
+  /** snapshot all enabled venues (or only the given ids) and append a NAV point. */
+  // only one round runs at a time, a second call returns the current numbers
   async round(only?: string[]): Promise<RoundResult> {
     if (this.running) return { ts: this.clock(), navUsd: this.d.store.state.liveNavUsd(), venues: [], incidents: [] };
     this.running = true;
@@ -73,6 +74,8 @@ export class Reconciler {
     }
   }
 
+  // ask every venue for a snapshot in its own process, price the holdings, and append the results.
+  // a failed venue keeps its last value and is flagged stale, so an outage is never booked as a loss.
   private async roundInner(only?: string[]): Promise<RoundResult> {
     const { store, oracle } = this.d;
     const cfg = this.d.config();
@@ -135,7 +138,7 @@ export class Reconciler {
     const { store, oracle } = this.d;
     const since = v.latest?.ts ?? v.registeredAt;
     const r = await this.d.callVenue(v, 'flows', { since });
-    if (!r.ok) return; // adapters without flows() answer with an error; that is fine
+    if (!r.ok) return; // adapters without flows() answer with an error, that is fine
     const flows = (r.result ?? []) as VenueFlow[];
     const known = new Set<string>();
     for (const f of store.state.flows) if (f.ref) known.add(f.ref);
@@ -161,6 +164,7 @@ export class Reconciler {
     }
   }
 
+  // two checks on the newest round: a rise nobody can explain, and a large drop that needs a post-mortem
   private detectAnomalies(cfg: OuroConfig, incidents: string[]): void {
     const { store } = this.d;
     const round = store.state.lastRound();
@@ -171,6 +175,7 @@ export class Reconciler {
       let explained = 0;
       for (const t of store.state.trades) if (t.ts > round.t0 && t.pnlUsd) explained += t.pnlUsd;
       const unclassified = store.state.unclassifiedInflows().reduce((s, i) => s + i.usd, 0);
+      // only flag it when recorded trade profit and unclassified deposits explain less than half of the rise
       if (explained + unclassified < 0.5 * delta) {
         const id = this.raise('warn', 'unexplained_jump', String(round.t1), `NAV rose ${fmtUsd(delta)} (${fmtPct(delta / round.v0)}) since the last reconciliation with no recorded deposit, income or trade P&L. If you deposited funds run \`ouro fund add\`; otherwise the agent must explain it. Until then treat it as unproven.`, { delta, from: round.v0, to: round.v1 });
         if (id) incidents.push(id);
@@ -183,6 +188,7 @@ export class Reconciler {
     }
   }
 
+  // a venue with a drawdown guard that falls too far below its peak stops its strategy
   private checkGuards(incidents: string[]): void {
     const { store } = this.d;
     for (const v of store.state.liveVenues()) {

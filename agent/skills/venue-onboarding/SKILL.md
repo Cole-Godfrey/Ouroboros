@@ -13,7 +13,7 @@ Research, and write the result to `memory/venues.md`:
 
 - Do the terms allow automated trading from the operator's jurisdiction (config `operator.jurisdiction`)? Note the URL and date. If unclear, skip it.
 - Minimum order/deposit, fees, withdrawal fees, spreads. Compute the **cost hurdle** for your capital. If a round trip costs more than a few percent of NAV, this venue is not for you yet.
-- Does it need a human (KYC, bank link, phone, CAPTCHA)? Wallet-only venues cost the operator nothing; KYC venues cost them 10–30 minutes.
+- Does it need a human (KYC, bank link, phone, CAPTCHA)? Wallet-only venues cost the operator nothing. KYC venues cost them 10 to 30 minutes.
 - What is the edge you expect there, and why would it survive fees? No hypothesis, no onboarding.
 
 ## 2. Ask once, completely
@@ -43,7 +43,7 @@ export default {
 Rules of the contract:
 
 - `holdings[].asset` is an upper-case ticker. Stablecoins are priced at $1, others by the price oracle. For positions the oracle cannot price (prediction-market shares, LP tokens), return `valueUsd` computed conservatively (mid or bid, not last).
-- **Fail loudly.** If any part of the snapshot cannot be read, throw. A partial answer looks like a phantom loss; a failure just keeps the last valuation and flags the venue as stale.
+- **Fail loudly.** If any part of the snapshot cannot be read, throw. A partial answer looks like a phantom loss. A failure just keeps the last valuation and flags the venue as stale.
 - Optional `flows(ctx, sinceTs)` returns deposits/withdrawals (`{kind, asset, qty, ref, from?}`) so deposits are never mistaken for profit. Implement it if the venue exposes transfer history.
 - On-chain: the built-in `builtin/evm-wallet` already reads native gas token + USDC on Base, Arbitrum, Optimism, Polygon and Ethereum. Add other tokens in `~/.ouroboros/data/venues/evm-wallet/config.json` (`{"tokens":[{"chain","address","symbol","decimals"}]}`). For other chains write a new adapter.
 

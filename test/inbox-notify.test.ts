@@ -1,3 +1,5 @@
+// tests for the inbox and the ntfy and telegram channels, using local fake servers.
+
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';

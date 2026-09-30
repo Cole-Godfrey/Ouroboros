@@ -1,9 +1,9 @@
-// Local HTTP API of the daemon.
+// local HTTP API of the daemon.
 //
-//   unix socket (paths.sock, mode 0600)  full access; used by the CLI and the agent's Pi extension
-//   TCP 127.0.0.1:<port> + token         read-only; used by the dashboard
+//   unix socket (paths.sock, mode 0600)  full access, used by the CLI and the agent's Pi extension
+//   TCP 127.0.0.1:<port> + token         read-only, used by the dashboard
 //
-// Everything that leaves this file is passed through the secret redactor.
+// everything that leaves this file is passed through the secret redactor.
 
 import http from 'node:http';
 import fs from 'node:fs';
@@ -18,6 +18,7 @@ import { resolveVenueModule, runVenueMethod } from './venues/run.ts';
 import { SECRET_NAME_RE } from './vault.ts';
 import type { Daemon } from './daemon.ts';
 
+// an error with an http status that the handler turns into a json response
 class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -26,6 +27,7 @@ class ApiError extends Error {
   }
 }
 
+// small validators keep every route's input handling in one place and its errors uniform
 const bad = (msg: string): never => {
   throw new ApiError(400, msg);
 };
@@ -51,8 +53,10 @@ const num = (v: unknown, name: string, opts: { optional?: boolean; min?: number 
   return n;
 };
 
+// venue ids become file paths and labels, so keep them simple
 const VENUE_ID = /^[a-z][a-z0-9-]{1,40}$/;
 
+// read a json body, refusing anything large so a buggy caller cannot exhaust memory
 async function readBody(req: http.IncomingMessage, max = 2 * 1024 * 1024): Promise<any> {
   const chunks: Buffer[] = [];
   let size = 0;
@@ -78,6 +82,7 @@ function downsample<T>(xs: T[], n: number): T[] {
   return out;
 }
 
+// routes are a table of handlers. write routes are refused on the read-only tcp listener.
 export function createApiHandler(d: Daemon) {
   const { store } = d;
 
@@ -136,7 +141,7 @@ export function createApiHandler(d: Daemon) {
     };
   };
 
-  /** Route table. `write` routes are refused on the TCP (dashboard) listener. */
+  /** route table. `write` routes are refused on the TCP (dashboard) listener. */
   type Handler = (q: URLSearchParams, body: any) => unknown | Promise<unknown>;
   const routes: Record<string, { write: boolean; fn: Handler }> = {
     'GET /healthz': { write: false, fn: () => ({ ok: true, pid: process.pid, sha: d.selfmod.runningSha(), uptimeSec: Math.round((d.clock() - d.startedAt) / 1000) }) },
@@ -168,6 +173,7 @@ export function createApiHandler(d: Daemon) {
     'GET /v1/episodes': { write: false, fn: (q) => ({ episodes: store.state.episodes.slice(-Number(q.get('n') ?? 20)).reverse(), current: store.state.currentEpisode }) },
     'GET /v1/incidents': { write: false, fn: (q) => ({ incidents: q.get('all') ? [...store.state.incidents.values()].slice(-100) : store.state.openIncidents() }) },
     'GET /v1/journal': { write: false, fn: (q) => ({ entries: store.state.journal.slice(-Number(q.get('n') ?? 30)) }) },
+    'GET /v1/model': { write: false, fn: () => d.modelInfo() },
     'GET /v1/budget': { write: false, fn: () => ({ ...d.meter.status(), episodeBudgetUsd: d.meter.episodeBudgetUsd() }) },
     'GET /v1/selfmod/status': { write: false, fn: () => d.selfmod.status() },
     'GET /v1/selfmod/history': { write: false, fn: () => ({ history: d.selfmod.history(30) }) },
@@ -349,9 +355,15 @@ export function createApiHandler(d: Daemon) {
     },
     'POST /v1/redact': { write: true, fn: (_q, b) => ({ text: globalRedactor.redact(String(b.text ?? '')) }) },
     'POST /v1/restart': { write: true, fn: (_q, b) => (d.requestRestart(b.reason ? String(b.reason) : 'operator request'), { ok: true }) },
+    'POST /v1/model': {
+      write: true,
+      fn: (_q, b) => d.setModel({ provider: str(b.provider, 'provider', { optional: true }) || undefined, model: str(b.model, 'model', { max: 200 }), cheapModel: str(b.cheapModel, 'cheapModel', { optional: true, max: 200 }) || undefined, thinking: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(b.thinking) ? b.thinking : undefined, by: str(b.by, 'by', { optional: true }) || 'agent' }),
+    },
     'POST /v1/config': { write: true, fn: (_q, b) => ({ config: d.patchConfig(b.patch ?? bad('patch is required')) }) },
   };
 
+  // authenticate (tcp needs the token, the unix socket is trusted because its mode is 0600),
+  // find the route, run it and redact secrets from whatever leaves.
   return async function handle(req: http.IncomingMessage, res: http.ServerResponse, opts: { trusted: boolean; token?: Buffer }): Promise<void> {
     const url = new URL(req.url ?? '/', 'http://x');
     const key = `${req.method} ${url.pathname}`;
@@ -380,7 +392,9 @@ export function createApiHandler(d: Daemon) {
   };
 }
 
-/** Run a command with vault secrets injected as env vars; return redacted output. */
+/** run a command with vault secrets injected as env vars, return redacted output. */
+// the agent's way of using a secret without seeing it: the values are injected as environment variables
+// of a child process and scrubbed from the output.
 function runWithSecrets(d: Daemon, b: any): Promise<unknown> {
   const argv: string[] = Array.isArray(b.argv) ? b.argv.map(String) : typeof b.script === 'string' ? ['bash', '-lc', b.script] : bad('argv (array) or script (string) is required');
   const names: string[] = Array.isArray(b.secrets) ? b.secrets.map(String) : [];

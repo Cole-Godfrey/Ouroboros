@@ -5,7 +5,7 @@ description: How to safely change your own harness: repo map, where to add tools
 
 # Changing yourself
 
-## Map (harness repo = `$OURO_CODE`, default `~/ouroboros`; state = `$OURO_HOME`, default `~/.ouroboros`)
+## Map (harness repo = `$OURO_CODE`, default `~/ouroboros`. State = `$OURO_HOME`, default `~/.ouroboros`)
 
 | Path | What it is |
 | --- | --- |
@@ -21,10 +21,10 @@ description: How to safely change your own harness: repo map, where to add tools
 
 ## The pipeline
 
-1. Edit the working copy with your file tools. `npm run check` (typecheck + tests) tells you what the gate will say; run it yourself first.
-2. `selfmod propose {message}` commits, exports a release, and runs the gate: typecheck, the full test suite, a smoke boot of the candidate daemon (which also loads the extension in the real Pi), and the Charter check. Failing output is returned to you; nothing is promoted.
+1. Edit the working copy with your file tools. `npm run check` (typecheck + tests) tells you what the gate will say. Run it yourself first.
+2. `selfmod propose {message}` commits, exports a release, and runs the gate: typecheck, the full test suite, a smoke boot of the candidate daemon (which also loads the extension in the real Pi), and the Charter check. Failing output is returned to you. Nothing is promoted.
 3. On success `current` flips atomically and the daemon restarts into the new release **when it is idle** (never mid-episode, at most 15 minutes later).
-4. **Probation** (15 min; 60 min if you touched protected paths: boot, selftest, selfmod, charter, eventlog, vault, reconciler, state, vm). The boot supervisor rolls back on a crash loop or if the new release never becomes healthy; the daemon rolls back if your episodes keep failing. Surviving probation makes the release the new "last known good".
+4. **Probation** (15 min. 60 min if you touched protected paths: boot, selftest, selfmod, charter, eventlog, vault, reconciler, state, vm). The boot supervisor rolls back on a crash loop or if the new release never becomes healthy. The daemon rolls back if your episodes keep failing. Surviving probation makes the release the new "last known good".
 5. A rolled-back commit is remembered and cannot be proposed unchanged. Read `selfmod history` and the briefing's rollback note, journal the lesson, and change something before trying again.
 
 ## Rules of thumb
@@ -38,4 +38,4 @@ description: How to safely change your own harness: repo map, where to add tools
 
 ## Good first improvements (each is a small, testable proposal)
 
-Deposit detection for `evm-wallet` (`flows()` from a block explorer API); a cheaper "monitor only" episode mode; caching of research notes; a price source for assets the oracle cannot price; better briefing sections once you know what you actually look at; stricter or looser incident triggers based on what woke you needlessly.
+Deposit detection for `evm-wallet` (`flows()` from a block explorer API). A cheaper "monitor only" episode mode. Caching of research notes. A price source for assets the oracle cannot price. Better briefing sections once you know what you actually look at. Stricter or looser incident triggers based on what woke you needlessly.

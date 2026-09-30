@@ -4,6 +4,7 @@
 import dns from 'node:dns/promises';
 import net from 'node:net';
 
+// loopback, private, link-local, carrier-grade nat and multicast ranges. the agent may not fetch these.
 export function isPrivateAddress(ip: string): boolean {
   if (net.isIPv4(ip)) {
     const [a, b] = ip.split('.').map(Number);
@@ -15,6 +16,7 @@ export function isPrivateAddress(ip: string): boolean {
   return mapped ? isPrivateAddress(mapped[1]) : false;
 }
 
+// check the name and every address it resolves to, so a public-looking name cannot point at the local network
 export async function assertPublicUrl(u: URL): Promise<void> {
   if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error('only http(s) URLs can be fetched');
   const host = u.hostname.replace(/^\[|\]$/g, '').toLowerCase();
@@ -29,6 +31,7 @@ export async function assertPublicUrl(u: URL): Promise<void> {
 
 const ENTITIES: Record<string, string> = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'", '&apos;': "'", '&nbsp;': ' ' };
 
+// a small html to text converter: drop scripts and styles, keep links and line breaks, decode common entities
 export function htmlToText(html: string): string {
   let s = html;
   s = s.replace(/<(script|style|noscript|svg|head)[\s\S]*?<\/\1>/gi, ' ');
@@ -43,6 +46,7 @@ export function htmlToText(html: string): string {
   return s.replace(/[ \t]+/g, ' ').replace(/\n[ \t]+/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+// fetch with a manual redirect loop so every hop is checked against the private-address rule
 export async function webFetch(url: string, maxChars: number, signal?: AbortSignal): Promise<string> {
   let u = new URL(url);
   let res: Response | undefined;

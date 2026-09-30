@@ -1,7 +1,7 @@
-// USD prices for NAV. The oracle is deliberately boring: stablecoins at $1,
-// operator/agent overrides, and Coinbase's public spot endpoint. Anything it
+// dollar prices for NAV. the oracle is deliberately boring: stablecoins at $1,
+// operator/agent overrides, and Coinbase's public spot endpoint. anything it
 // cannot price is reported as "unpriced" and excluded from NAV rather than guessed.
-// (A venue adapter can always supply its own valueUsd; the agent can add sources.)
+// (A venue adapter can always supply its own valueUsd, the agent can add sources.)
 
 import { fetchJson } from '../lib/http.ts';
 import { systemClock, type Clock } from '../lib/clock.ts';
@@ -14,8 +14,10 @@ export interface PriceSource {
   get(asset: string): Promise<number | undefined>;
 }
 
+// assets treated as exactly one dollar. a depeg would not be noticed, which is an accepted simplification.
 export const STABLES = ['USD', 'USDC', 'USDT', 'DAI', 'USDS', 'PYUSD', 'FDUSD', 'TUSD', 'USDG'];
 
+// wrapped assets are priced as the asset they wrap
 const ALIASES: Record<string, string> = { WETH: 'ETH', WBTC: 'BTC', CBBTC: 'BTC', WSOL: 'SOL', WPOL: 'POL', WMATIC: 'POL', MATIC: 'POL' };
 
 export function normalizeAsset(asset: string): string {
@@ -23,6 +25,7 @@ export function normalizeAsset(asset: string): string {
   return ALIASES[a] ?? a;
 }
 
+// the default price source: coinbase's public spot price. returns undefined for anything it cannot price.
 export function coinbaseSource(fetchImpl: typeof fetchJson = fetchJson): PriceSource {
   return {
     name: 'coinbase',
@@ -39,6 +42,8 @@ export function coinbaseSource(fetchImpl: typeof fetchJson = fetchJson): PriceSo
   };
 }
 
+// turns holdings into dollars. order of trust: a manual override, then a stablecoin at one dollar,
+// then a cached quote, then the configured sources in order.
 export class PriceOracle {
   private sources: PriceSource[];
   private overrides: Record<string, number>;
@@ -80,7 +85,9 @@ export class PriceOracle {
     return price;
   }
 
-  /** Value a snapshot's holdings. Adapter-provided valueUsd/priceUsd win over the oracle. */
+  /** value a snapshot's holdings. adapter-provided valueUsd/priceUsd win over the oracle. */
+  // value a snapshot. prices and values reported by the adapter win over the oracle.
+  // assets nobody can price are listed as unpriced and counted as zero, never guessed.
   async value(holdings: VenueHolding[]): Promise<{ holdings: Holding[]; totalUsd: number; unpriced: string[] }> {
     const out: Holding[] = [];
     const unpriced: string[] = [];

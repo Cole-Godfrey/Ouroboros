@@ -1,16 +1,16 @@
-// LLM provider table shared by the runner, the metering proxy and the CLI.
+// the LLM provider table shared by the runner, the metering proxy and the CLI.
 
 export type WireApi = 'anthropic' | 'openai';
 
 export interface ProviderSpec {
-  /** Vault secret / environment variable holding the API key. */
+  /** vault secret / environment variable holding the API key. */
   keyEnv: string;
-  /** Scheme + host of the real API. */
+  /** scheme + host of the real API. */
   upstream: string;
-  /** Path prefix Pi puts on requests for this provider (e.g. "/v1"). */
+  /** path prefix Pi puts on requests for this provider (e.g. "/v1"). */
   basePath: string;
   api: WireApi;
-  /** Environment variable the vendor SDKs read for a base URL override, if any. */
+  /** environment variable the vendor SDKs read for a base URL override, if any. */
   baseUrlEnv?: string;
 }
 
@@ -25,7 +25,7 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
   fireworks: { keyEnv: 'FIREWORKS_API_KEY', upstream: 'https://api.fireworks.ai', basePath: '/inference/v1', api: 'openai' },
 };
 
-/** Providers Pi knows that are not proxied (no entry above) still work: their key is passed straight through. */
+/** providers Pi knows that are not proxied (no entry above) still work: their key is passed straight through. */
 export const EXTRA_KEY_ENV: Record<string, string> = {
   google: 'GEMINI_API_KEY',
   mistral: 'MISTRAL_API_KEY',
@@ -37,13 +37,26 @@ export function providerKeyEnv(provider: string): string | undefined {
   return PROVIDERS[provider]?.keyEnv ?? EXTRA_KEY_ENV[provider];
 }
 
-/** Model id as Pi/the API expect it, from config ("provider/model" or bare). */
-export function modelId(model: string): string {
-  return model.includes('/') ? model.slice(model.indexOf('/') + 1) : model;
+/**
+ * model id as pi and the provider api expect it. a leading "<provider>/" is dropped
+ * (so "anthropic/claude-x" works for anthropic) except on openrouter, whose own ids
+ * contain slashes ("openrouter/free", "qwen/qwen3-coder:free").
+ */
+export function modelId(model: string, provider?: string): string {
+  if (!provider || provider === 'openrouter') return model;
+  return model.startsWith(`${provider}/`) ? model.slice(provider.length + 1) : model;
+}
+
+/** the free router picks any free model that supports the request. it is always available, so it is the fallback. */
+export const FREE_ROUTER = 'openrouter/free';
+
+/** free models cost nothing, so they never count against a budget. */
+export function isFreeModel(model: string): boolean {
+  return model === FREE_ROUTER || model.endsWith(':free');
 }
 
 /**
- * Environment variables that point every LLM client in a process tree at the metering proxy (with a
+ * environment variables that point every LLM client in a process tree at the metering proxy (with a
  * short-lived token) or, when there is no proxy, at the real key.
  */
 export function providerEnv(o: { provider: string; proxy?: { url: string; token: string }; secret?: string }): Record<string, string> {

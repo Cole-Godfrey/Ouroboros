@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Install Ouroboros inside the VM. Run as the `ouro` user (it uses sudo where needed). Idempotent.
+# install Ouroboros inside the VM. run as the `ouro` user (it uses sudo where needed). idempotent.
 #
 #   ~/ouroboros/vm/provision/provision.sh
 #
-# Installs: Node.js (checksum-verified), the harness dependencies (including the Pi agent harness),
+# installs: Node.js (checksum-verified), the harness dependencies (including the Pi agent harness),
 # the last-resort boot supervisor (outside the repo, root-owned), the egress firewall, the systemd
-# services and the `ouro` command. It does not start the agent: run `ouro init`, then `ouro start`.
+# services and the `ouro` command. it does not start the agent: run `ouro init`, then `ouro start`.
 set -euo pipefail
 
 REPO="${OURO_CODE:-$HOME/ouroboros}"

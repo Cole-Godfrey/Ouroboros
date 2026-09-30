@@ -1,5 +1,5 @@
-// Runs one "episode": a bounded working session of the agent inside a fresh Pi
-// process (RPC mode). The runner builds the briefing, enforces the budget, the
+// runs one "episode": a bounded working session of the agent inside a fresh Pi
+// process (RPC mode). the runner builds the briefing, enforces the budget, the
 // wall-clock limit and a stall watchdog, records everything in the audit log, and
 // always leaves the system in a clean state (no orphan Pi processes).
 
@@ -34,7 +34,7 @@ export interface EpisodeResult {
 
 export interface EpisodeRequest {
   triggers: Trigger[];
-  /** Use the cheap model for routine wake-ups. */
+  /** use the cheap model for routine wake-ups. */
   tier?: 'cheap' | 'default';
 }
 
@@ -58,21 +58,24 @@ export interface RunnerDeps {
   meter: Meter;
   config: () => OuroConfig;
   limits: () => Limits;
-  /** Secrets readable by the runner (LLM keys). */
+  /** secrets readable by the runner (LLM keys). */
   getSecret: (name: string) => string | undefined;
   strategies: () => StrategySummary[];
   releaseSha: () => string | undefined;
   proxy?: () => LlmProxyHandle | undefined;
-  /** Test seam: how to start Pi. */
+  /** test seam: how to start Pi. */
   spawn?: (o: PiSpawnOptions) => PiRpc;
   log?: Logger;
   clock?: Clock;
-  /** Called when an LLM call fails for auth/billing reasons so the daemon can alert the operator. */
+  /** called when an LLM call fails for auth/billing reasons so the daemon can alert the operator. */
   onLlmProblem?: (kind: 'auth' | 'billing' | 'other', message: string) => void;
 }
 
+// the only variables pi inherits from the daemon. everything else, including secrets, is left out on purpose.
 const CHILD_ENV = ['PI_OFFLINE', 'PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ', 'TMPDIR', 'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy', 'SSL_CERT_FILE', 'NODE_EXTRA_CA_CERTS', 'NODE_USE_ENV_PROXY', 'XDG_CONFIG_HOME'];
 
+// runs one episode at a time: starts pi, sends the briefing, watches for timeouts and stalls,
+// meters the cost and records everything in the audit log.
 export class EpisodeRunner {
   private d: RunnerDeps;
   private log: Logger;
@@ -97,7 +100,7 @@ export class EpisodeRunner {
     return this.active ? { id: this.active.id, startedAt: this.active.startedAt } : undefined;
   }
 
-  /** Called by the API when the agent uses the episode_end tool. */
+  /** called by the API when the agent uses the episode_end tool. */
   noteEnd(episodeId: string, info: EndInfo): boolean {
     if (!this.active || this.active.id !== episodeId) return false;
     this.active.end = info;
@@ -119,6 +122,7 @@ export class EpisodeRunner {
     return { command: 'pi', prefix: [] };
   }
 
+  // pi's environment: paths it needs, plus either a short-lived proxy token or, without a proxy, the real key
   buildEnv(episodeId: string, token: string | undefined, budgetUsd: number): Record<string, string> {
     const { paths } = this.d;
     const cfg = this.d.config();
@@ -142,7 +146,8 @@ export class EpisodeRunner {
     return env;
   }
 
-  /** Can an episode run right now? Returns a human reason when not. */
+  /** can an episode run right now? Returns a human reason when not. */
+  // can an episode start right now? checks the charter seal, the model's key and the budget.
   precheck(): { ok: boolean; reason?: string } {
     if (this.active) return { ok: false, reason: 'an episode is already running' };
     const cfg = this.d.config();
@@ -155,6 +160,7 @@ export class EpisodeRunner {
     return { ok: true };
   }
 
+  // one full episode. the outcome is always recorded, even when pi crashes.
   async run(req: EpisodeRequest): Promise<EpisodeResult> {
     const { store, meter, paths } = this.d;
     const cfg = this.d.config();
@@ -211,7 +217,7 @@ export class EpisodeRunner {
         '--session-dir', paths.sessions,
         '--name', id,
         '--provider', cfg.llm.provider,
-        '--model', modelId(model),
+        '--model', modelId(model, cfg.llm.provider),
         '--thinking', cfg.llm.thinking,
         '-e', path.join(paths.root, 'src', 'pi', 'extension', 'index.ts'),
         '--skill', path.join(paths.root, 'agent', 'skills'),
@@ -234,10 +240,10 @@ export class EpisodeRunner {
             if (u) {
               const usage = { input: u.input ?? 0, output: u.output ?? 0, cacheRead: u.cacheRead ?? 0, cacheWrite: u.cacheWrite ?? 0 };
               const reported = typeof u.cost?.total === 'number' && u.cost.total > 0 ? u.cost.total : undefined;
-              const cost = reported ?? meter.cost(m.model ?? modelId(model), usage);
+              const cost = reported ?? meter.cost(m.model ?? modelId(model, cfg.llm.provider), usage);
               costUsd = roundUsd(costUsd + cost);
-              // with the proxy on, the proxy is the ledger's source; otherwise record Pi's own numbers
-              if (!proxy) meter.record({ provider: m.provider ?? cfg.llm.provider, model: m.model ?? modelId(model), usage, costUsd: reported, episode: id, source: 'pi' });
+              // with the proxy on, the proxy is the ledger's source, otherwise record Pi's own numbers
+              if (!proxy) meter.record({ provider: m.provider ?? cfg.llm.provider, model: m.model ?? modelId(model, cfg.llm.provider), usage, costUsd: reported, episode: id, source: 'pi' });
             }
             if (m.stopReason === 'error' && m.errorMessage) lastError = String(m.errorMessage);
             const text = Array.isArray(m.content) ? m.content.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n') : '';
@@ -355,6 +361,6 @@ export class EpisodeRunner {
     return { id, outcome: this._last!.outcome, costUsd, turns, toolCalls, durationMs: this._last!.durationMs, handoff: this._last!.handoff, error: this._last!.error };
   }
 
-  /** Details of the most recent episode (including the agent's requested wake-up), for the scheduler. */
+  /** details of the most recent episode (including the agent's requested wake-up), for the scheduler. */
   _last?: EpisodeResult & { end?: EndInfo };
 }

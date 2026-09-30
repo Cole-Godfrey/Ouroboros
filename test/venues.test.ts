@@ -1,3 +1,5 @@
+// tests for venue adapters: the paper engine, child-process isolation and the evm wallet adapter.
+
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

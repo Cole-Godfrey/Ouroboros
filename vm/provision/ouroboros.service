@@ -17,7 +17,7 @@ ExecStart=/opt/ouroboros/boot/run.sh
 Restart=always
 RestartSec=5
 LimitNOFILE=65536
-# stopping the service stops everything the agent started (Pi, strategies); the daemon re-adopts what should run
+# stopping the service stops everything the agent started (Pi, strategies), the daemon re-adopts what should run
 KillMode=control-group
 TimeoutStopSec=60
 

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Launcher for the ouro CLI. Resolves symlinks so /usr/local/bin/ouro -> .../current/bin/ouro works.
+# launcher for the ouro CLI. resolves symlinks so /usr/local/bin/ouro -> .../current/bin/ouro works.
 self="$0"
 while [ -h "$self" ]; do
   dir="$(cd "$(dirname "$self")" && pwd)"

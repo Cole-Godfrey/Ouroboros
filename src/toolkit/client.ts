@@ -1,4 +1,4 @@
-// Client for the daemon's unix-socket API. Used by the `ouro` CLI and by strategy
+// client for the daemon's unix-socket API. used by the `ouro` CLI and by strategy
 // processes the agent writes (OURO_HOME is set in their environment).
 
 import http from 'node:http';
@@ -16,6 +16,7 @@ export function socketPath(): string {
   return process.env.OURO_SOCK ?? path.join(process.env.OURO_HOME ?? path.join(os.homedir(), '.ouroboros'), 'run', 'ouro.sock');
 }
 
+// call the daemon over its unix socket. strategies and scripts the agent writes can import this too.
 export function apiCall<T = any>(method: 'GET' | 'POST', url: string, body?: unknown, timeoutMs = 10 * 60_000): Promise<T> {
   const sock = socketPath();
   return new Promise<T>((resolve, reject) => {
@@ -42,7 +43,7 @@ export function apiCall<T = any>(method: 'GET' | 'POST', url: string, body?: unk
   });
 }
 
-/** Convenience wrappers for strategy code. */
+/** convenience wrappers for strategy code. */
 export const ouro = {
   status: () => apiCall('GET', '/v1/status'),
   trade: (t: { venue: string; market: string; side: 'buy' | 'sell'; qty: number; price: number; feeUsd?: number; pnlUsd?: number; strategy?: string; memo?: string }) => apiCall('POST', '/v1/trade', t),

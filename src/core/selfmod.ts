@@ -1,17 +1,17 @@
-// Self-modification pipeline: "freedom with recovery".
+// self-modification pipeline: "freedom with recovery".
 //
-// The agent edits a normal git working copy of this repository (paths.code).
-// The system never runs that working copy. It runs immutable, exported releases:
+// the agent edits a normal git working copy of this repository (paths.code).
+// the system never runs that working copy. it runs immutable, exported releases:
 //
 //   propose  ->  commit  ->  export release  ->  GATE (typecheck, tests, smoke boot, charter)
 //            ->  promote (atomic symlink swap of `current`)  ->  restart when idle
 //            ->  PROBATION (crash-loop detector in the boot supervisor + episode health)
 //            ->  confirm (becomes `lkg`, the last known good)   or   auto-rollback to `lkg`.
 //
-// A change that fails the gate is never promoted and the agent gets the failure
+// a change that fails the gate is never promoted and the agent gets the failure
 // output to fix it. A change that passes the gate but misbehaves in production is
 // rolled back automatically and remembered, so it is not retried blindly.
-// Nothing here is a wall: it is a seat belt.
+// nothing here is a wall: it is a seat belt.
 
 import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -26,7 +26,8 @@ import type { Paths } from '../lib/paths.ts';
 import { charterSha, readSeal } from './charter.ts';
 import type { StateStore } from './state.ts';
 
-/** Changes to these paths get the long probation window and are flagged high-risk. */
+/** changes to these paths get the long probation window and are flagged high-risk. */
+// the parts of the harness that keep the other guarantees checkable. changes here are high risk.
 export const PROTECTED_PATHS = ['agent/CHARTER.md', 'boot/', 'src/selftest/', 'src/core/selfmod.ts', 'src/core/charter.ts', 'src/core/eventlog.ts', 'src/core/vault.ts', 'src/core/reconciler.ts', 'src/core/state.ts', 'vm/'];
 
 export interface GateStep {
@@ -65,9 +66,9 @@ export interface SelfModDeps {
   paths: Paths;
   store: StateStore;
   config: () => OuroConfig;
-  /** Ask the daemon to restart itself into `current` when it next goes idle. */
+  /** ask the daemon to restart itself into `current` when it next goes idle. */
   requestRestart: (reason: string) => void;
-  /** Test seam: replace the gate. */
+  /** test seam: replace the gate. */
   gate?: (dir: string, ctx: { sha: string; files: string[] }) => Promise<GateStep[]>;
   log?: Logger;
   clock?: Clock;
@@ -75,6 +76,7 @@ export interface SelfModDeps {
 
 const SHORT = 12;
 
+// a path ending in a slash protects a whole directory, anything else is an exact file
 export function isHighRisk(files: string[]): boolean {
   return files.some((f) => PROTECTED_PATHS.some((p) => (p.endsWith('/') ? f.startsWith(p) : f === p)));
 }
@@ -86,6 +88,7 @@ interface ExecResult {
   ms: number;
 }
 
+// run a command with a hard timeout and kill its whole process group, so a hung gate step cannot linger
 function exec(cmd: string, args: string[], opts: { cwd: string; env?: NodeJS.ProcessEnv; timeoutMs: number }): Promise<ExecResult> {
   const t0 = Date.now();
   return new Promise((resolve) => {
@@ -119,6 +122,8 @@ function exec(cmd: string, args: string[], opts: { cwd: string; env?: NodeJS.Pro
 
 const tail = (s: string, n = 4000) => (s.length > n ? '…' + s.slice(-n) : s);
 
+// the self-modification pipeline: commit the agent's change, gate it, promote it as an immutable release,
+// watch it during probation and roll back automatically if it misbehaves.
 export class SelfMod {
   private d: SelfModDeps;
   private log: Logger;
@@ -181,11 +186,13 @@ export class SelfMod {
     return t ? this.readRelease(t)?.sha : undefined;
   }
 
-  /** The release this very process was started from. */
+  /** the release this very process was started from. */
   runningSha(): string | undefined {
     return this.readRelease(this.d.paths.root)?.sha;
   }
 
+  // replace a symlink atomically (write a temporary one, then rename over the old).
+  // the supervisor may read the link at any moment and must never see it missing.
   private swapLink(link: string, target: string): void {
     const tmp = `${link}.${process.pid}.tmp`;
     rmrf(tmp);
@@ -195,7 +202,9 @@ export class SelfMod {
 
   // -------------------------------------------------------------- releases
 
-  /** Export a commit as an immutable release directory (with its own node_modules). */
+  /** export a commit as an immutable release directory (with its own node_modules). */
+  // turn a commit into an immutable release directory. node_modules is copied from the running release
+  // unless the lockfile changed, in which case it is installed fresh.
   async exportRelease(sha: string, npmCi: boolean): Promise<string> {
     const dir = this.releaseDir(sha);
     if (fileExists(path.join(dir, '.ouro-release.json'))) return dir;
@@ -221,7 +230,8 @@ export class SelfMod {
     }
   }
 
-  /** First install: turn the current HEAD of the working copy into release #0 and mark it good. */
+  /** first install: turn the current HEAD of the working copy into release #0 and mark it good. */
+  // first install: the current working copy becomes release zero and is marked good
   async baseline(): Promise<{ sha: string; dir: string }> {
     if (!fileExists(path.join(this.d.paths.code, '.git'))) throw new Error(`${this.d.paths.code} is not a git repository`);
     const dirty = this.git(['status', '--porcelain']);
@@ -269,6 +279,8 @@ export class SelfMod {
 
   // --------------------------------------------------------------- the gate
 
+  // the gate runs in a scratch home against the exported release, never against live state.
+  // order matters: cheap checks first, and the first failure stops the rest.
   private async defaultGate(dir: string, ctx: { sha: string; files: string[] }): Promise<GateStep[]> {
     const cfg = this.d.config();
     const timeoutMs = cfg.selfmod.gateTimeoutSec * 1000;
@@ -293,6 +305,7 @@ export class SelfMod {
         if (!(await run('smoke-boot', process.execPath, ['src/selftest/smoke.ts']))) return steps;
       } else steps.push({ name: 'smoke-boot', ok: false, ms: 0, tail: 'src/selftest/smoke.ts is missing' });
       if (steps.at(-1)!.ok === false) return steps;
+      // the candidate charter must match the operator's seal, so no change can quietly rewrite the rules
       const cand = charterSha(dir);
       const sealed = readSeal(this.d.paths);
       const ok = !!cand && (!sealed || sealed === cand);
@@ -306,6 +319,7 @@ export class SelfMod {
 
   // ---------------------------------------------------------------- propose
 
+  // only one proposal at a time. every outcome is written to the audit log.
   async propose(message: string, by = 'agent'): Promise<ProposeResult> {
     const id = newId('sm');
     if (this.busy) return { ok: false, id, steps: [], reason: 'another proposal is being processed' };
@@ -322,6 +336,9 @@ export class SelfMod {
     }
   }
 
+  // 1. commit the working tree (refusing anything that looks like a secret)
+  // 2. export a release and run the gate
+  // 3. promote by repointing current, then ask the daemon to restart when idle
   private async proposeInner(id: string, message: string, by: string): Promise<ProposeResult> {
     const { store } = this.d;
     const current = this.currentSha();
@@ -384,7 +401,9 @@ export class SelfMod {
 
   // ------------------------------------------------------ probation/rollback
 
-  /** Called once at daemon start-up. Ingests supervisor-made rollbacks and starts probation for a fresh promotion. */
+  /** called once at daemon start-up. ingests supervisor-made rollbacks and starts probation for a fresh promotion. */
+  // runs once at daemon start-up: record a rollback the supervisor made while we were down,
+  // or begin the probation window for a release that has just booted
   onStart(): void {
     const now = this.clock();
     const p = this.readPromotion();
@@ -403,7 +422,8 @@ export class SelfMod {
     }
   }
 
-  /** Periodic check: confirm a release that has behaved, or roll back one whose episodes keep failing. */
+  /** periodic check: confirm a release that has behaved, or roll back one whose episodes keep failing. */
+  // probation passes when the time is up, and fails early when episodes keep failing with no success
   tickProbation(): 'confirmed' | 'rolledback' | undefined {
     const p = this.readPromotion();
     if (!p || p.state !== 'probation' || !p.probationUntil || !p.startedAt) return undefined;
@@ -430,7 +450,8 @@ export class SelfMod {
     return undefined;
   }
 
-  /** Point `current` back at the last known good release and restart into it. */
+  /** point `current` back at the last known good release and restart into it. */
+  // point current back at the last known good release and restart into it
   rollback(reason: string, by = 'operator'): { ok: boolean; from?: string; to?: string; reason?: string } {
     const lkg = this.lkgSha();
     const cur = this.currentSha();
@@ -445,7 +466,8 @@ export class SelfMod {
     return { ok: true, from: cur, to: lkg };
   }
 
-  /** Keep `current`, `lkg` and the newest few releases; delete the rest. */
+  /** keep `current`, `lkg` and the newest few releases, delete the rest. */
+  // keep the running release, the last known good one and the newest few. delete the rest.
   prune(): void {
     try {
       const keep = this.d.config().selfmod.keepReleases;

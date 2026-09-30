@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// ouro-boot: the last-resort supervisor. Plain JavaScript, zero dependencies.
+// ouro-boot: the last-resort supervisor. plain JavaScript, zero dependencies.
 //
-// It is the only part of Ouroboros that is installed OUTSIDE the release tree
+// it is the only part of Ouroboros that is installed OUTSIDE the release tree
 // (/opt/ouroboros/boot/), and it stays deliberately small because it is what
 // rescues the system when everything else is broken:
 //
@@ -13,11 +13,11 @@
 //     becomes healthy, points `current` back at the last known good release,
 //     records the rollback in run/promotion.json, and boots that instead.
 //
-// The audit log is not touched here (that would duplicate hash-chain logic in the
+// the audit log is not touched here (that would duplicate hash-chain logic in the
 // one file that must never break): the restarted daemon ingests promotion.json
 // and writes the rollback event itself.
 //
-// Exit codes of this process: 0 = stopped cleanly on request; anything else =
+// exit codes of this process: 0 = stopped cleanly on request, anything else =
 // something is badly wrong and systemd should look at it.
 
 import { spawn } from 'node:child_process';
@@ -28,6 +28,7 @@ import { pathToFileURL } from 'node:url';
 
 export const EXIT_RESTART = 75;
 
+// every read is tolerant: a missing or half-written file must never crash the supervisor
 function readJson(file, fallback) {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -36,6 +37,7 @@ function readJson(file, fallback) {
   }
 }
 
+// write to a temporary file, then rename, so readers never see a partial file
 function writeJsonAtomic(file, value) {
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(value, null, 2) + '\n');
@@ -53,6 +55,7 @@ function swapLink(link, target) {
   fs.renameSync(tmp, link);
 }
 
+// every timing value can be overridden in the constructor, which is how the tests run it in milliseconds
 export class Supervisor {
   constructor(opts = {}) {
     this.home = opts.home ?? process.env.OURO_HOME ?? path.join(os.homedir(), '.ouroboros');
@@ -73,6 +76,7 @@ export class Supervisor {
         args: ['--disable-warning=ExperimentalWarning', path.join(dir, 'src', 'core', 'daemon.ts')],
       }));
     this.env = opts.env ?? process.env;
+    // timestamps of recent crashes, used to spot a crash loop
     this.crashes = [];
     this.stopping = false;
     this.child = undefined;
@@ -89,6 +93,7 @@ export class Supervisor {
     fs.mkdirSync(this.paths.logs, { recursive: true });
   }
 
+  // follow a symlink to the real release directory and read its sha
   resolveRelease(link) {
     try {
       const dir = fs.realpathSync(link);
@@ -104,7 +109,8 @@ export class Supervisor {
     if (this.child && this.child.exitCode === null) this.child.kill('SIGTERM');
   }
 
-  /** Start one daemon and resolve when it is gone. */
+  /** start one daemon and resolve when it is gone. */
+  // start one daemon and resolve when it is gone. a watchdog kills it if the heartbeat goes stale.
   runOnce(rel) {
     return new Promise((resolve) => {
       const { cmd, args } = this.buildCommand(rel.dir);
@@ -122,6 +128,7 @@ export class Supervisor {
       let reason;
       const timer = setInterval(() => {
         const hb = readJson(this.paths.heartbeat, undefined);
+        // healthy means a recent heartbeat written by this very child. the grace period covers slow start-up.
         const fresh = hb && hb.pid === child.pid && this.now() - hb.ts < this.staleMs;
         if (!fresh && this.now() - started > this.graceMs && !reason) {
           reason = hb && hb.pid === child.pid ? 'heartbeat went stale' : 'never became healthy';
@@ -140,7 +147,9 @@ export class Supervisor {
     });
   }
 
-  /** During probation, a crash loop or failure to become healthy sends us back to the last known good release. */
+  /** during probation, a crash loop or failure to become healthy sends us back to the last known good release. */
+  // only during the probation of a fresh promotion: three crashes in ten minutes,
+  // or never becoming healthy, sends current back to the last known good release.
   maybeRollback(rel, result) {
     const p = readJson(this.paths.promotion, undefined);
     if (!p || !['pending', 'probation'].includes(p.state) || p.sha !== rel.sha) return false;
@@ -160,6 +169,8 @@ export class Supervisor {
     return true;
   }
 
+  // the main loop: run the daemon, then decide from how it ended whether to restart at once,
+  // stop, roll back or wait with exponential backoff.
   async run() {
     let consecutive = 0;
     while (!this.stopping) {
@@ -175,6 +186,7 @@ export class Supervisor {
         this.log('daemon exited cleanly; stopping');
         return 0;
       }
+      // the daemon asked to be restarted into current, for example after a promotion. no penalty.
       if (result.code === EXIT_RESTART) {
         this.log('daemon asked for a restart into `current`');
         consecutive = 0;

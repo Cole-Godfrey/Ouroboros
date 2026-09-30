@@ -1,17 +1,19 @@
 import os from 'node:os';
 import path from 'node:path';
 
-/** Root of the release (or working copy) this file is running from. */
+/** root of the release (or working copy) this file is running from. */
 export const ROOT_DIR = path.resolve(import.meta.dirname, '..', '..');
 
+// // every directory and file the system uses, resolved once.
+// // state survives releases and rollbacks, code is what the supervisor swaps.
 export interface Paths {
-  /** State directory. Survives releases and rollbacks. Default ~/.ouroboros */
+  /** state directory. survives releases and rollbacks. default ~/.ouroboros */
   home: string;
-  /** Editable working copy of the harness repository. Default ~/ouroboros */
+  /** editable working copy of the harness repository. default ~/ouroboros */
   code: string;
-  /** The release this process is running from. */
+  /** the release this process is running from. */
   root: string;
-  /** Operator-owned config directory (limits, charter seal). Default /etc/ouroboros */
+  /** operator-owned config directory (limits, charter seal). default /etc/ouroboros */
   etc: string;
 
   current: string; // symlink -> releases/<sha>
@@ -41,6 +43,7 @@ export interface Paths {
   wallets: string;
 }
 
+// // environment variables let tests and unusual installs move everything without touching the code
 export function resolvePaths(env: NodeJS.ProcessEnv = process.env): Paths {
   const home = path.resolve(env.OURO_HOME ?? path.join(os.homedir(), '.ouroboros'));
   const code = path.resolve(env.OURO_CODE ?? path.join(os.homedir(), 'ouroboros'));

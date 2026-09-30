@@ -1,10 +1,12 @@
+// tests for price lookup, token cost accounting and the budget gate.
+
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PriceOracle, normalizeAsset, coinbaseSource } from '../src/core/prices.ts';
 import { Meter, costOf, DEFAULT_PRICING, FALLBACK_PRICING, priceFor } from '../src/core/meter.ts';
 import { DEFAULT_CONFIG, deepMerge, effectiveBudget, type OuroConfig } from '../src/lib/config.ts';
 import { DAY } from '../src/lib/clock.ts';
-import { makeStore } from './helpers.ts';
+import { makeStore, PAID_LLM } from './helpers.ts';
 
 test('oracle: stablecoins are $1, overrides win, aliases collapse, unknown assets are reported unpriced', async () => {
   const calls: string[] = [];
@@ -59,7 +61,7 @@ test('costOf uses per-million rates, handles dated model ids and falls back to t
 
 function meterEnv(over: Partial<OuroConfig> = {}, limits = {}) {
   const env = makeStore();
-  const cfg: OuroConfig = deepMerge(structuredClone(DEFAULT_CONFIG), { budget: { sponsorDailyUsd: 2, perEpisodeUsd: 1 }, ...over });
+  const cfg: OuroConfig = deepMerge(deepMerge(structuredClone(DEFAULT_CONFIG), PAID_LLM), { budget: { sponsorDailyUsd: 2, perEpisodeUsd: 1 }, ...over });
   const meter = new Meter({ store: env.store, config: () => cfg, limits: () => limits, clock: env.clock.fn });
   return { ...env, cfg, meter };
 }

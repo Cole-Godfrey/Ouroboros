@@ -1,5 +1,5 @@
-// A stand-in for `pi --mode rpc` that speaks the same JSONL protocol, driven by
-// FAKE_PI_SCRIPT (JSON). Used to test the runner without a model or network.
+// a stand-in for `pi --mode rpc` that speaks the same JSONL protocol, driven by
+// FAKE_PI_SCRIPT (JSON). used to test the runner without a model or network.
 //
 // script = {
 //   events: [ { type, ..., delayMs? } ],   // emitted after a prompt is accepted

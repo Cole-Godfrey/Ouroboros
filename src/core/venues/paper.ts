@@ -1,4 +1,4 @@
-// Built-in venue: the paper-trading sandbox (see src/toolkit/paper.ts).
+// built-in venue: the paper-trading sandbox (see src/toolkit/paper.ts).
 import path from 'node:path';
 import { PaperExchange } from '../../toolkit/paper.ts';
 import type { VenueContext, VenueModule } from './types.ts';

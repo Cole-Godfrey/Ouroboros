@@ -1,9 +1,10 @@
-// Tiny client for the Ouroboros daemon's unix-socket API, used by the agent's tools.
+// tiny client for the Ouroboros daemon's unix-socket API, used by the agent's tools.
 
 import http from 'node:http';
 
 export class DaemonUnavailable extends Error {}
 
+// same as the toolkit client, but reads the socket path pi was started with
 export function callApi<T = any>(method: 'GET' | 'POST', path: string, body?: unknown, timeoutMs = 10 * 60_000): Promise<T> {
   const socketPath = process.env.OURO_SOCK;
   if (!socketPath) return Promise.reject(new DaemonUnavailable('OURO_SOCK is not set: this Pi session is not attached to an Ouroboros daemon'));

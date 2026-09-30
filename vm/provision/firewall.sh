@@ -1,5 +1,5 @@
 #!/bin/sh
-# Apply the Ouroboros egress policy, verify that it did not break connectivity (rolling back if it
+# apply the Ouroboros egress policy, verify that it did not break connectivity (rolling back if it
 # did), and report whether isolation from the host and LAN actually holds.
 #
 #   firewall.sh apply | remove | status

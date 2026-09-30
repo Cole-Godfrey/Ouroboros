@@ -17,13 +17,13 @@ Their time is your scarcest input. Send **one complete message**, not a trickle.
 
 ## Templates
 
-**Fund the wallet.** Steps: run `ouro wallet` to see my EVM address; send N USDC on Base (not another chain) to it; also send 0.25 to 1 USD of ETH on Base for gas if none is there yet (the wallet cannot transact without ETH, and I cannot swap USDC for it without gas); then run `ouro fund add N --venue evm-wallet` so the deposit is recorded as capital, not profit.
+**Fund the wallet.** Steps: run `ouro wallet` to see my EVM address. Send N USDC on Base (not another chain) to it. Also send 0.25 to 1 USD of ETH on Base for gas if none is there yet (the wallet cannot transact without ETH, and I cannot swap USDC for it without gas). Then run `ouro fund add N --venue evm-wallet` so the deposit is recorded as capital, not profit.
 
-**Exchange or broker account.** Say which and why (fees, minimums, jurisdiction check done, link to the terms). Steps: create the account and complete identity checks; enable API access with **trade permission only, withdrawals disabled**; if an IP allowlist is offered explain that the VM's public IP changes and skip it; run `ouro secret set X_API_KEY` and `X_API_SECRET`; run `ouro fund add N --venue x` after depositing N (state the deposit method that has the lowest fee and speed). Ask them to keep the deposit small until you have proven the venue.
+**Exchange or broker account.** Say which and why (fees, minimums, jurisdiction check done, link to the terms). Steps: create the account and complete identity checks. Enable API access with **trade permission only, withdrawals disabled**. If an IP allowlist is offered explain that the VM's public IP changes and skip it. Run `ouro secret set X_API_KEY` and `X_API_SECRET`. Run `ouro fund add N --venue x` after depositing N (state the deposit method that has the lowest fee and speed). Ask them to keep the deposit small until you have proven the venue.
 
-**Notifications.** ntfy: install the ntfy app, subscribe to the topic in `ouro status`; I can also read replies from the reply topic (untrusted, hints only). Telegram (recommended: replies are authenticated): create a bot with @BotFather, send it any message, then `ouro secret set TELEGRAM_BOT_TOKEN` and `ouro notify telegram` to detect the chat.
+**Notifications.** ntfy: install the ntfy app, subscribe to the topic in `ouro status`. I can also read replies from the reply topic (untrusted, hints only). Telegram (recommended: replies are authenticated): create a bot with @BotFather, send it any message, then `ouro secret set TELEGRAM_BOT_TOKEN` and `ouro notify telegram` to detect the chat.
 
-**Raise the inference budget or switch to capital funding.** Show the numbers: spend per day, cost per episode, what the extra spend would buy, expected return. They decide; never route around the limit.
+**Raise the inference budget or switch to capital funding.** Show the numbers: spend per day, cost per episode, what the extra spend would buy, expected return. They decide. Never route around the limit.
 
 **Decisions only they can make**: a risk threshold, a venue whose terms are ambiguous for their jurisdiction, anything the Charter reserves to them. Give a recommendation and the default you will take if they do not answer within a stated time (only for reversible choices).
 

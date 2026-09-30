@@ -1,4 +1,4 @@
-// `ouro init`: one-time interactive setup. Safe to re-run.
+// `ouro init`: one-time interactive setup. safe to re-run.
 
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -17,7 +17,8 @@ import { resolvePaths, ROOT_DIR } from '../lib/paths.ts';
 import { ensureEvmWallet } from '../toolkit/evm.ts';
 import { ask, askHidden, bold, confirm, dim, green, yellow, cyan } from './ui.ts';
 
-/** Write a root-owned file: try directly, then via passwordless sudo. */
+/** write a root-owned file: try directly, then via passwordless sudo. */
+// // write a root-owned file: try directly, then through passwordless sudo
 export function writePrivileged(file: string, content: string): boolean {
   try {
     ensureDir(path.dirname(file));
@@ -29,6 +30,7 @@ export function writePrivileged(file: string, content: string): boolean {
   }
 }
 
+// // check a key against the provider's model list. offline or unsure counts as unknown, never as a failure.
 async function validateKey(provider: string, key: string): Promise<'ok' | 'rejected' | 'unknown'> {
   const spec = PROVIDERS[provider];
   if (!spec || process.env.OURO_OFFLINE) return 'unknown';
@@ -44,6 +46,7 @@ async function validateKey(provider: string, key: string): Promise<'ok' | 'rejec
   }
 }
 
+// // every step is safe to repeat: existing keys, wallet, seal and release are kept
 export async function runInit(flags: Record<string, string | true>): Promise<void> {
   const paths = resolvePaths();
   const interactive = !flags.yes && !!process.stdin.isTTY;
@@ -54,6 +57,7 @@ export async function runInit(flags: Record<string, string | true>): Promise<voi
   say(dim(`state: ${paths.home}   harness: ${paths.code}   running from: ${paths.root}`));
   say();
 
+  // // refuse to continue on a node too old to run typescript natively
   // 0. environment
   const [maj, min] = process.versions.node.split('.').map(Number);
   if (maj < 22 || (maj === 22 && min < 18)) throw new Error(`Node ${process.versions.node} is too old; Ouroboros needs 22.18 or newer`);
@@ -69,10 +73,15 @@ export async function runInit(flags: Record<string, string | true>): Promise<voi
   cfg.operator.timezone = flag('timezone') ?? (interactive ? await ask('Your timezone (defines the budget "day")', cfg.operator.timezone !== 'UTC' ? cfg.operator.timezone : detectedTz) : cfg.operator.timezone !== 'UTC' ? cfg.operator.timezone : detectedTz);
   cfg.operator.jurisdiction = flag('jurisdiction') ?? (interactive ? await ask('Your jurisdiction, e.g. US-CA, DE, SG (the agent uses it to avoid venues you may not use)', cfg.operator.jurisdiction) : cfg.operator.jurisdiction);
   cfg.operator.name = flag('name') ?? (interactive ? await ask('Your name (optional, for the agent)', cfg.operator.name) : cfg.operator.name);
-  cfg.llm.provider = flag('provider') ?? (interactive ? await ask('LLM provider (anthropic, openai, openrouter, ...)', cfg.llm.provider) : cfg.llm.provider);
-  cfg.llm.model = flag('model') ?? (interactive ? await ask('Main model', cfg.llm.model) : cfg.llm.model);
-  const daily = Number(flag('daily-budget') ?? (interactive ? await ask('Daily inference budget you will pay for, USD', String(cfg.budget.sponsorDailyUsd)) : cfg.budget.sponsorDailyUsd));
-  const perEp = Number(flag('episode-budget') ?? (interactive ? await ask('Maximum per episode, USD', String(cfg.budget.perEpisodeUsd)) : cfg.budget.perEpisodeUsd));
+  cfg.llm.provider = flag('provider') ?? (interactive ? await ask('LLM provider (openrouter has free models; also anthropic, openai, ...)', cfg.llm.provider) : cfg.llm.provider);
+  cfg.llm.model = flag('model') ?? (interactive ? await ask('Main model (a free one by default; the agent can upgrade itself later)', cfg.llm.model) : cfg.llm.model);
+  cfg.llm.cheapModel = flag('model') ? cfg.llm.model : cfg.llm.cheapModel;
+  // by default the agent starts on a free model and pays for any upgrade from its own capital.
+  // sponsor mode (you pay for inference) is opt-in with --mode sponsor
+  cfg.budget.mode = flag('mode') === 'sponsor' ? 'sponsor' : flag('mode') === 'capital' ? 'capital' : cfg.budget.mode;
+  const sponsored = cfg.budget.mode === 'sponsor';
+  const daily = Number(flag('daily-budget') ?? (interactive && sponsored ? await ask('Daily inference budget you will pay for, USD', String(cfg.budget.sponsorDailyUsd)) : cfg.budget.sponsorDailyUsd));
+  const perEp = Number(flag('episode-budget') ?? (interactive && sponsored ? await ask('Maximum per episode, USD', String(cfg.budget.perEpisodeUsd)) : cfg.budget.perEpisodeUsd));
   if (!Number.isFinite(daily) || daily <= 0 || !Number.isFinite(perEp) || perEp <= 0) throw new Error('budgets must be positive numbers');
   cfg.budget.sponsorDailyUsd = daily;
   cfg.budget.perEpisodeUsd = Math.min(perEp, daily);
@@ -90,7 +99,7 @@ export async function runInit(flags: Record<string, string | true>): Promise<voi
       vault.set(keyName, key, `${cfg.llm.provider} API key`);
     } else say(yellow(`No ${keyName} stored yet. The agent cannot think until you run: ouro secret set ${keyName}`));
   } else say(dim(`${keyName} already in the vault.`));
-  say(dim('Set a hard spending limit on that key in the provider console too: it is the backstop that cannot be edited from inside the VM.'));
+  say(dim('A free OpenRouter account and key is enough to start. If you later let the agent use a paid model, set a hard spending limit on the key in the provider console: it is the backstop that cannot be edited from inside the VM.'));
 
   // 3. notifications
   if (!cfg.notify.ntfy.topic) {

@@ -1,15 +1,15 @@
-# Ouroboros VM for Lima (>= 2.0) on macOS, using Apple's Virtualization.framework.
+# ouroboros VM for Lima (>= 2.0) on macOS, using Apple's Virtualization.framework.
 #
 #   limactl create --name ouroboros vm/lima/ouroboros.yaml && limactl start ouroboros
 #
 # (vm/mac/setup.sh does this for you, then installs the software inside.)
 #
-# Isolation choices, on purpose:
+# isolation choices, on purpose:
 #   * NO host mounts: nothing on your Mac is visible inside the VM.
 #   * No automatic port forwarding except the read-only dashboard (7777, bound to your Mac's localhost).
 #   * No host proxy or SSH-agent forwarding into the VM.
 #   * The guest firewall (vm/provision/firewall.sh) additionally blocks the VM from reaching your Mac
-#     and your local network; it can reach only the public internet.
+#     and your local network, it can reach only the public internet.
 
 minimumLimaVersion: 2.0.0
 
@@ -18,7 +18,7 @@ base:
 
 vmType: vz
 
-# Size it for a busy agent: it builds software, runs strategies and keeps market data.
+# size it for a busy agent: it builds software, runs strategies and keeps market data.
 cpus: 4
 memory: 8GiB
 disk: 80GiB
@@ -44,7 +44,7 @@ propagateProxyEnv: false
 hostResolver:
   enabled: true
 
-# First match wins: forward only the dashboard, ignore everything else.
+# first match wins: forward only the dashboard, ignore everything else.
 portForwards:
   - guestPort: 7777
     hostIP: "127.0.0.1"

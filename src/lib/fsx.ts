@@ -7,7 +7,7 @@ export function ensureDir(dir: string, mode = 0o755): void {
   fs.mkdirSync(dir, { recursive: true, mode });
 }
 
-/** Write via temp file + fsync + rename so readers never see a half-written file. */
+/** write via temp file + fsync + rename so readers never see a half-written file. */
 export function writeFileAtomic(file: string, data: string | Uint8Array, mode = 0o644): void {
   ensureDir(path.dirname(file));
   const tmp = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
@@ -41,9 +41,11 @@ export interface LockOptions {
 }
 
 /**
- * Cross-process mutex built on mkdir (atomic on every POSIX filesystem).
- * A lock older than staleMs is presumed abandoned and stolen.
+ * cross-process mutex built on mkdir (atomic on every POSIX filesystem).
+ * a lock older than staleMs is presumed abandoned and stolen.
  */
+// a mutual-exclusion lock built on mkdir, which is atomic on every filesystem.
+// a lock older than staleMs is assumed to belong to a dead process and is taken over.
 export function withLockSync<T>(lockDir: string, fn: () => T, opts: LockOptions = {}): T {
   const timeoutMs = opts.timeoutMs ?? 10_000;
   const staleMs = opts.staleMs ?? 30_000;
@@ -89,7 +91,8 @@ export function appendLineSync(file: string, line: string): void {
   }
 }
 
-/** Last complete (newline-terminated) line of a file, or undefined. Reads from the end. */
+/** last complete (newline-terminated) line of a file, or undefined. reads from the end. */
+// read the last line of a large file by scanning backwards from the end in growing chunks
 export function readLastLine(file: string): string | undefined {
   let fd: number;
   try {
@@ -119,7 +122,7 @@ export function readLastLine(file: string): string | undefined {
   }
 }
 
-/** If the file does not end with a newline (crash mid-append), truncate to the last newline. */
+/** if the file does not end with a newline (crash mid-append), truncate to the last newline. */
 export function repairTail(file: string): boolean {
   let fd: number;
   try {

@@ -1,8 +1,8 @@
-// Strategy runtime: supervised, long-lived programs that keep trading while the
-// model sleeps. The agent writes them; this keeps them alive.
+// strategy runtime: supervised, long-lived programs that keep trading while the
+// model sleeps. the agent writes them, this keeps them alive.
 //
-// Strategies are spawned detached (own process group) so they survive daemon
-// restarts, including the restarts that self-modification causes. On start-up the
+// strategies are spawned detached (own process group) so they survive daemon
+// restarts, including the restarts that self-modification causes. on start-up the
 // daemon re-adopts any that are still running.
 
 import { spawn } from 'node:child_process';
@@ -21,11 +21,11 @@ export interface StrategySpec {
   cmd: string[];
   cwd?: string;
   env?: Record<string, string>;
-  /** Vault secret names injected as environment variables. */
+  /** vault secret names injected as environment variables. */
   secrets?: string[];
   restart: 'always' | 'on-failure' | 'never';
   description?: string;
-  /** The venue (sub-account) this strategy trades in, so guards and P&L can be attributed. */
+  /** the venue (sub-account) this strategy trades in, so guards and P&L can be attributed. */
   venue?: string;
 }
 
@@ -45,6 +45,7 @@ interface Registry {
   strategies: Record<string, Record_>;
 }
 
+// strategy names become file names and process labels, so keep them simple
 const NAME_RE = /^[a-z][a-z0-9_-]{1,40}$/;
 
 function alive(pid: number, cmdHint?: string): boolean {
@@ -64,6 +65,8 @@ function alive(pid: number, cmdHint?: string): boolean {
   return true;
 }
 
+// keeps the agent's long-running programs alive. they run detached, so they survive daemon restarts
+// and are adopted again when the daemon comes back.
 export class ProcMan {
   private d: { paths: Paths; store: StateStore; env: (names: string[]) => { env: Record<string, string>; missing: string[] }; log?: Logger; clock?: Clock };
   private log: Logger;
@@ -131,6 +134,7 @@ export class ProcMan {
     }
   }
 
+  // start a strategy with only the secrets it declared, logging to its own file
   start(name: string): { pid: number } {
     const r = this.reg.strategies[name];
     if (!r) throw new Error(`no such strategy: ${name}`);
@@ -235,7 +239,8 @@ export class ProcMan {
     await Promise.all(Object.keys(this.reg.strategies).map((n) => this.stop(n, by)));
   }
 
-  /** Re-attach to strategies still running from before a daemon restart; start any that should be running but are not. */
+  /** re-attach to strategies still running from before a daemon restart, start any that should be running but are not. */
+  // after a daemon restart: keep strategies that are still running, restart the ones that should be
   adoptAll(): void {
     for (const r of Object.values(this.reg.strategies)) {
       if (r.desired !== 'running') continue;
@@ -254,7 +259,8 @@ export class ProcMan {
     this.save();
   }
 
-  /** Monitor loop: notice adopted processes dying, run scheduled restarts, cap log growth. */
+  /** monitor loop: notice adopted processes dying, run scheduled restarts, cap log growth. */
+  // monitor loop: notice adopted processes that died, run scheduled restarts, cap log growth
   tick(): void {
     const now = this.clock();
     for (const r of Object.values(this.reg.strategies)) {

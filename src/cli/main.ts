@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// `ouro`: the operator's command line. Talks to the daemon over its unix socket;
+// `ouro`: the operator's command line. talks to the daemon over its unix socket;
 // commands that only read or append to the audit log also work while it is down.
 
 import { spawn, spawnSync } from 'node:child_process';
@@ -9,7 +9,7 @@ import { checkCharter, charterSha } from '../core/charter.ts';
 import { EventLog } from '../core/eventlog.ts';
 import { formatStatus, ago, pct, usd } from '../core/format.ts';
 import { Inbox } from '../core/inbox.ts';
-import { modelId, providerEnv, providerKeyEnv } from '../core/llm.ts';
+import { isFreeModel, modelId, providerEnv, providerKeyEnv } from '../core/llm.ts';
 import { SelfMod } from '../core/selfmod.ts';
 import { StateStore } from '../core/state.ts';
 import { TelegramChannel } from '../core/notify.ts';
@@ -23,14 +23,18 @@ import { runDoctor } from './doctor.ts';
 import { runInit, writePrivileged } from './init.ts';
 import { askHidden, bold, confirm, cyan, dim, die, green, parseArgs, red, table, yellow } from './ui.ts';
 
+// every command resolves the same directories the daemon uses, from OURO_HOME and friends
 const paths = resolvePaths();
 const say = (s = '') => console.log(s);
 
+// direct access to the ledger and vault for when the daemon is not running.
+// the audit log is safe to append to from several processes, so the cli can still record facts offline.
 function local() {
   const store = new StateStore(new EventLog(paths.events, { lockDir: paths.eventsLock }));
   return { store, inbox: new Inbox(store, {}), vault: new Vault(paths) };
 }
 
+// prefer the daemon's api, fall back to working on the files directly only when the daemon is down
 async function viaApi<T>(api: () => Promise<T>, fallback: () => T | Promise<T>): Promise<T> {
   try {
     return await api();
@@ -40,6 +44,7 @@ async function viaApi<T>(api: () => Promise<T>, fallback: () => T | Promise<T>):
   }
 }
 
+// keep this list in step with the switch in main() at the bottom of the file
 const HELP = `${bold('ouro')}: the Ouroboros operator CLI
 
 ${bold('Everyday')}
@@ -60,6 +65,7 @@ ${bold('Control')}
   pause | resume | halt        stop waking the agent / stop everything, including strategies
   start | stop | restart | kill    the system service (kill = halt + stop)
   poke [reason]                wake the agent now
+  model [set <model> [--provider P]]   the model the agent thinks with (free by default)
   budget [set --daily N --episode N --total N | mode sponsor|capital]
 
 ${bold('Inspect')}
@@ -78,6 +84,7 @@ ${bold('Harness')}
 
 // ------------------------------------------------------------------ commands
 
+// show the headline numbers. works offline by folding the audit log.
 async function status() {
   await viaApi(
     async () => say(formatStatus(await apiCall('GET', '/v1/status'))),
@@ -90,6 +97,7 @@ async function status() {
   );
 }
 
+// render one inbox item with its steps, the secrets to set and the conversation so far
 function fmtItem(it: any, now: number): string {
   const head = `${bold('#' + it.id)} ${statusColor(it.status)} ${it.kind} from ${it.from} ${dim(ago(now, it.ts))}${it.urgency === 'high' ? red(' URGENT') : ''}`;
   const L = [head, `  ${bold(it.title)}`];
@@ -102,6 +110,7 @@ function fmtItem(it: any, now: number): string {
 }
 const statusColor = (s: string) => (s === 'open' ? yellow('[open]') : s === 'answered' ? green('[answered]') : dim(`[${s}]`));
 
+// list what the agent needs from the operator. by default only open items.
 async function inbox(flags: Record<string, string | true>) {
   const now = Date.now();
   const items: any[] = await viaApi(
@@ -115,6 +124,7 @@ async function inbox(flags: Record<string, string | true>) {
   if (open.length) say(`\n${dim('Answer with:')} ouro reply ${open[0].id} "..."   ${dim('close with:')} ouro done ${open[0].id}`);
 }
 
+// answer an inbox item. the daemon wakes the agent when an operator message arrives.
 async function reply(pos: string[]) {
   const [id, ...text] = pos;
   if (!id || !text.length) die('usage: ouro reply <id> <text...>');
@@ -128,6 +138,8 @@ async function sayCmd(pos: string[]) {
   say(green('Sent.'));
 }
 
+// secrets are typed at a hidden prompt or read from an environment variable, never passed as arguments,
+// so they do not end up in shell history.
 async function secret(pos: string[], flags: Record<string, string | true>) {
   const [sub, name] = pos;
   if (sub === 'list' || !sub) {
@@ -154,6 +166,8 @@ async function secret(pos: string[], flags: Record<string, string | true>) {
   die('usage: ouro secret set NAME | list | rm NAME');
 }
 
+// record money the operator moved. this is what keeps a deposit from looking like profit.
+// fund add and fund out are flows, inflows lists unknown money waiting to be classified.
 async function fund(pos: string[], flags: Record<string, string | true>) {
   const [sub, arg] = pos;
   if (sub === 'add' || sub === 'out') {
@@ -190,7 +204,7 @@ async function fund(pos: string[], flags: Record<string, string | true>) {
   say(`\nNet contributed: ${bold(usd(store.state.netContributedUsd()))}`);
 }
 
-/** Print the wallet's private key once, on a terminal, so the operator can keep their own backup. */
+/** print the wallet's private key once, on a terminal, so the operator can keep their own backup. */
 async function walletExport() {
   if (!process.stdin.isTTY || !process.stdout.isTTY) die('run `ouro wallet export` in an interactive terminal');
   const { vault } = local();
@@ -209,6 +223,28 @@ function wallet() {
   say('\nTo give the agent money: send USDC on Base to that address, plus $0.25 to $1 of ETH on Base for gas (without any ETH the wallet cannot transact; it counts toward NAV),\nthen run: ' + cyan('ouro fund add <amount> --venue evm-wallet') + '\nOnly send what you are prepared to lose. Keep your own copy of the key: ' + cyan('ouro wallet export') + '.');
 }
 
+// show or change the model the agent thinks with (the agent can also do this itself)
+async function model(pos: string[], flags: Record<string, string | true>) {
+  const [sub, name] = pos;
+  const cfg = loadConfig(paths);
+  if (sub === 'set') {
+    if (!name) die('usage: ouro model set <model> [--provider P] [--cheap M] [--thinking LEVEL]');
+    const provider = typeof flags.provider === 'string' ? flags.provider : cfg.llm.provider;
+    const keyName = providerKeyEnv(provider);
+    if (!keyName) die(`unknown provider "${provider}"`);
+    const llm: Record<string, string> = { provider, model: name, cheapModel: typeof flags.cheap === 'string' ? flags.cheap : name };
+    if (typeof flags.thinking === 'string') llm.thinking = flags.thinking;
+    writeJson(paths.config, deepMerge(readJson<Record<string, unknown>>(paths.config, {}), { llm }));
+    if (!local().vault.has(keyName)) say(yellow(`${keyName} is not in the vault yet: ouro secret set ${keyName}`));
+    return say(green(`Model is now ${provider}/${name}${isFreeModel(name) ? ' (free)' : ''}. It applies from the next episode.`));
+  }
+  const free = isFreeModel(cfg.llm.model);
+  say(`${bold(cfg.llm.provider + '/' + cfg.llm.model)} ${free ? green('free') : yellow('paid, funded by ' + cfg.budget.mode)}  routine tier: ${cfg.llm.cheapModel}  thinking: ${cfg.llm.thinking}`);
+  say(dim('Change with: ouro model set <model> [--provider P]. The agent may also switch when it judges a smarter model is worth its cost.'));
+}
+
+// inference limits. raising a limit writes three places (config, audit log, root-owned file)
+// because the daemon always enforces the lowest of them.
 async function budget(pos: string[], flags: Record<string, string | true>) {
   const [sub, arg] = pos;
   const cfg = loadConfig(paths);
@@ -234,6 +270,7 @@ async function budget(pos: string[], flags: Record<string, string | true>) {
     say(green('Budget updated.') + (wrote ? '' : dim(' (could not write the root-owned limits file; the audit-log copy is enforced)')));
     return;
   }
+  // sponsor means the operator pays for thinking, capital means the agent pays from its own nav
   if (sub === 'mode') {
     if (!['sponsor', 'capital'].includes(arg)) die('usage: ouro budget mode sponsor|capital');
     if (arg === 'capital') say(yellow('In capital mode the agent pays for its own thinking out of NAV (capped at ' + (cfg.budget.capitalMaxDailyPctNav * 100).toFixed(0) + '% of NAV per day). With small NAV that may leave it unable to think.'));
@@ -248,11 +285,13 @@ async function budget(pos: string[], flags: Record<string, string | true>) {
   say(dim('Raise with: ouro budget set --daily 10   (also set the spending limit at your provider)'));
 }
 
+// pause stops waking the agent, halt also stops every strategy
 async function control(action: 'pause' | 'resume' | 'halt') {
   await viaApi(() => apiCall('POST', '/v1/control', { action, by: 'operator' }), () => local().store.append('control', { action, by: 'operator' }));
   say(action === 'pause' ? yellow('Paused: the agent will not be woken; strategies keep running.') : action === 'halt' ? red('Halted: the agent and all strategies are stopped.') : green('Resumed.'));
 }
 
+// recent episodes with their trigger, outcome, cost and handoff note
 async function episodes(n: number) {
   const { store } = local();
   const now = Date.now();
@@ -261,6 +300,7 @@ async function episodes(n: number) {
   say(table(eps.map((e) => [e.id, ago(now, e.startedAt), e.reason, e.outcome ?? 'running', usd(e.costUsd), String(e.turns ?? ''), (e.handoff ?? e.error ?? '').replace(/\s+/g, ' ').slice(0, 70)]), ['EPISODE', 'STARTED', 'TRIGGER', 'OUTCOME', 'COST', 'TURNS', 'HANDOFF']));
 }
 
+// read or check the audit log. export writes csv for tax records.
 async function ledger(pos: string[], flags: Record<string, string | true>) {
   const { store } = local();
   const [sub, arg] = pos;
@@ -292,6 +332,7 @@ async function ledger(pos: string[], flags: Record<string, string | true>) {
   for (const e of all.slice(-n)) say(`${dim(String(e.seq).padStart(5))} ${dim(new Date(e.ts).toISOString().slice(0, 19))} ${bold(e.type)} ${JSON.stringify(e.data).slice(0, 220)}`);
 }
 
+// manage the long-running programs the agent registered
 async function strategy(pos: string[], flags: Record<string, string | true>) {
   const [sub, name] = pos;
   if (sub === 'list' || !sub) {
@@ -308,6 +349,7 @@ async function strategy(pos: string[], flags: Record<string, string | true>) {
   die('usage: ouro strategy list|stop NAME|start NAME|logs NAME');
 }
 
+// list the places the agent holds value, or set a manual value for one without an adapter
 async function venue(pos: string[]) {
   const [sub, id, amount] = pos;
   if (sub === 'value') {
@@ -317,9 +359,10 @@ async function venue(pos: string[]) {
   }
   const { store } = local();
   const now = Date.now();
-  say(table(store.state.liveVenues().map((v) => [v.id, v.kind ?? '', v.latest ? usd(v.latest.totalUsd) : '—', v.latest ? ago(now, v.latest.ts) : 'never', v.strategy ?? '', v.lastError ? red('error') : '']), ['VENUE', 'KIND', 'VALUE', 'RECONCILED', 'STRATEGY', '']));
+  say(table(store.state.liveVenues().map((v) => [v.id, v.kind ?? '', v.latest ? usd(v.latest.totalUsd) : '-', v.latest ? ago(now, v.latest.ts) : 'never', v.strategy ?? '', v.lastError ? red('error') : '']), ['VENUE', 'KIND', 'VALUE', 'RECONCILED', 'STRATEGY', '']));
 }
 
+// inspect the self-modification pipeline or roll back by hand
 async function selfmod(pos: string[]) {
   const [sub, ...rest] = pos;
   const { store } = local();
@@ -343,6 +386,7 @@ async function selfmod(pos: string[]) {
   say(`working copy: ${s.workingCopy.dirty ? yellow('uncommitted changes') : 'clean'}, ${s.workingCopy.ahead} commit(s) ahead, ${s.workingCopy.changedFiles.length} file(s) differ from the running release`);
 }
 
+// the charter is sealed by hash. seal records the current hash after the operator reviewed it.
 function charter(pos: string[]) {
   const [sub] = pos;
   if (sub === 'seal') {
@@ -356,6 +400,7 @@ function charter(pos: string[]) {
   say(`${c.ok ? green(c.state) : red(c.state)}: ${c.message}`);
 }
 
+// set up phone notifications through ntfy or telegram
 async function notify(pos: string[]) {
   const [sub] = pos;
   const cfg = loadConfig(paths);
@@ -385,6 +430,7 @@ async function notify(pos: string[]) {
   die('usage: ouro notify ntfy|telegram|test');
 }
 
+// tail one of the log files. boot is the supervisor's output.
 function logs(pos: string[], flags: Record<string, string | true>) {
   const [which, name] = pos;
   const file = which === 'pi' ? path.join(paths.logs, 'pi-stderr.log') : which === 'boot' ? path.join(paths.logs, 'daemon.out.log') : which === 'strategy' && name ? path.join(paths.logs, `strategy-${name}.log`) : path.join(paths.logs, 'daemon.log');
@@ -393,6 +439,8 @@ function logs(pos: string[], flags: Record<string, string | true>) {
   spawnSync('tail', args, { stdio: 'inherit' });
 }
 
+// an interactive pi session with the same tools the agent has. model traffic still goes through
+// the metering proxy when the daemon is up, so the conversation is metered like any episode.
 async function chat() {
   const cfg = loadConfig(paths);
   const vault = new Vault(paths);
@@ -408,15 +456,17 @@ async function chat() {
   Object.assign(env, providerEnv({ provider: cfg.llm.provider, proxy, secret: keyEnv && vault.has(keyEnv) ? vault.get(keyEnv) : undefined }));
   const pi = [path.join(paths.root, 'node_modules', '.bin', 'pi'), path.join(paths.code, 'node_modules', '.bin', 'pi')].find((p) => fs.existsSync(p)) ?? 'pi';
   say(dim('You are talking to the agent directly. Your messages are operator instructions. Ctrl-D to leave.\n'));
-  const child = spawn(pi, ['--provider', cfg.llm.provider, '--model', modelId(cfg.llm.model), '--thinking', cfg.llm.thinking, '-e', path.join(paths.root, 'src', 'pi', 'extension', 'index.ts'), '--skill', path.join(paths.root, 'agent', 'skills'), '--skill', path.join(paths.home, 'skills'), '--session-dir', paths.sessions, '--name', `chat-${new Date().toISOString().slice(0, 16)}`], { stdio: 'inherit', env, cwd: paths.workspace });
+  const child = spawn(pi, ['--provider', cfg.llm.provider, '--model', modelId(cfg.llm.model, cfg.llm.provider), '--thinking', cfg.llm.thinking, '-e', path.join(paths.root, 'src', 'pi', 'extension', 'index.ts'), '--skill', path.join(paths.root, 'agent', 'skills'), '--skill', path.join(paths.home, 'skills'), '--session-dir', paths.sessions, '--name', `chat-${new Date().toISOString().slice(0, 16)}`], { stdio: 'inherit', env, cwd: paths.workspace });
   child.on('exit', (c) => process.exit(c ?? 0));
 }
 
+// start, stop or restart the system service. needs passwordless sudo, which the vm provides.
 function systemctl(verb: string) {
   const r = spawnSync('sudo', ['-n', 'systemctl', verb, 'ouroboros'], { stdio: 'inherit' });
   if (r.status !== 0) die(`systemctl ${verb} ouroboros failed (is the service installed? provisioning does that)`);
 }
 
+// print the dashboard address. the token keeps other local processes from reading it.
 function dashboard() {
   const cfg = loadConfig(paths);
   let token = '';
@@ -429,6 +479,8 @@ function dashboard() {
   say(dim('Open that on your Mac: the VM forwards its localhost port automatically. Read-only.'));
 }
 
+// install or inspect the boot supervisor, which lives outside the repository on purpose
+// so the agent's own changes cannot replace it.
 function boot(pos: string[]) {
   const [sub] = pos;
   const target = '/opt/ouroboros/boot';
@@ -443,6 +495,7 @@ function boot(pos: string[]) {
   say(fs.existsSync(`${target}/ouro-boot.mjs`) ? green('installed') + `: ${target}/ouro-boot.mjs` + (fs.existsSync(`${target}/ouro-boot.lkg.mjs`) ? dim(' (+ lkg copy)') : '') : yellow('not installed'));
 }
 
+// wake the agent now instead of waiting for its next scheduled episode
 async function poke(pos: string[]) {
   await apiCall('POST', '/v1/poke', { reason: pos.join(' ') || 'poked by operator' });
   say(green('The agent will start an episode shortly (budget permitting).'));
@@ -450,6 +503,7 @@ async function poke(pos: string[]) {
 
 // ---------------------------------------------------------------------- main
 
+// dispatch on the first word. the agent and the operator use the same commands.
 async function main() {
   const { pos, flags } = parseArgs(process.argv.slice(2), ['yes', 'all', 'deep', 'f', 'stdin', 'key-stdin']);
   const [cmd, ...rest] = pos;
@@ -481,6 +535,8 @@ async function main() {
       return fund(rest, flags);
     case 'wallet':
       return rest[0] === 'export' ? walletExport() : wallet();
+    case 'model':
+      return model(rest, flags);
     case 'budget':
       return budget(rest, flags);
     case 'pause':
@@ -527,7 +583,7 @@ async function main() {
   }
 }
 
-void pct;
+void pct; // keeps the import used for future status output
 main().catch((e) => {
   die(e instanceof Error ? e.message : String(e));
 });

@@ -1,3 +1,5 @@
+// tests for the episode runner, with a fake pi process that speaks the rpc protocol.
+
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -10,7 +12,7 @@ import { StateStore } from '../src/core/state.ts';
 import { DEFAULT_CONFIG, deepMerge, type OuroConfig } from '../src/lib/config.ts';
 import { ROOT_DIR } from '../src/lib/paths.ts';
 import { sealCharter } from '../src/core/charter.ts';
-import { tmpEnv } from './helpers.ts';
+import { tmpEnv, PAID_LLM } from './helpers.ts';
 
 const FIXTURE = path.resolve(import.meta.dirname, 'fixtures/fake-pi.mjs');
 
@@ -19,7 +21,7 @@ function setup(script: object, cfgOver: any = {}, opts: { proxy?: boolean } = {}
   for (const d of [e.paths.run, e.paths.memory, e.paths.logs]) fs.mkdirSync(d, { recursive: true });
   sealCharter(e.paths, ROOT_DIR);
   const store = new StateStore(new EventLog(e.paths.events));
-  const cfg: OuroConfig = deepMerge(structuredClone(DEFAULT_CONFIG), { schedule: { stallSec: 2, episodeTimeoutSec: 30 }, budget: { perEpisodeUsd: 1, sponsorDailyUsd: 5 }, ...cfgOver });
+  const cfg: OuroConfig = deepMerge(deepMerge(structuredClone(DEFAULT_CONFIG), PAID_LLM), { schedule: { stallSec: 2, episodeTimeoutSec: 30 }, budget: { perEpisodeUsd: 1, sponsorDailyUsd: 5 }, ...cfgOver });
   const meter = new Meter({ store, config: () => cfg, limits: () => ({}) });
   const logFile = path.join(e.dir, 'fake-pi.log');
   const spawnLog: PiSpawnOptions[] = [];

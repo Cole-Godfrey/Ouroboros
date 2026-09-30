@@ -1,38 +1,39 @@
 import { readJson, writeJson } from './fsx.ts';
 import type { Paths } from './paths.ts';
 
+// // every setting has a default below. the file in the state directory only needs the keys that differ.
 export interface OuroConfig {
   operator: {
     name: string;
-    /** e.g. "US-CA", "DE", "SG". The agent uses this to avoid restricted venues. */
+    /** e.g. "US-CA", "DE", "SG". the agent uses this to avoid restricted venues. */
     jurisdiction: string;
-    /** IANA timezone; defines the "day" for budgets. */
+    /** timezone name (IANA), defines the "day" for budgets. */
     timezone: string;
-    /** On-chain addresses that belong to the operator: inflows from these are capital injections. */
+    /** on-chain addresses that belong to the operator: inflows from these are capital injections. */
     addresses: string[];
   };
   llm: {
-    /** Pi provider id, e.g. "anthropic", "openai", "openrouter". */
+    /** pi provider id, e.g. "anthropic", "openai", "openrouter". */
     provider: string;
     model: string;
     thinking: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-    /** Used for routine, low-stakes episodes when the agent asks for a cheap wake-up. */
+    /** used for routine, low-stakes episodes when the agent asks for a cheap wake-up. */
     cheapModel: string;
-    /** Route Pi's model traffic through the local metering proxy. */
+    /** route Pi's model traffic through the local metering proxy. */
     proxy: boolean;
     proxyPort: number;
-    /** Override where a provider's real API lives (corporate gateway, regional endpoint, tests). */
+    /** override where a provider's real API lives (corporate gateway, regional endpoint, tests). */
     upstreams?: Record<string, string>;
   };
   budget: {
-    /** Who pays for inference: the operator ("sponsor") or the agent's own capital. */
+    /** who pays for inference: the operator ("sponsor") or the agent's own capital. */
     mode: 'sponsor' | 'capital';
     sponsorDailyUsd: number;
     sponsorTotalUsd: number | null;
     perEpisodeUsd: number;
-    /** NAV at which the daemon proposes switching to mode "capital". */
+    /** the NAV at which the daemon proposes switching to mode "capital". */
     graduationNavUsd: number;
-    /** In capital mode: inference may cost at most this fraction of NAV per day. */
+    /** in capital mode: inference may cost at most this fraction of NAV per day. */
     capitalMaxDailyPctNav: number;
   };
   schedule: {
@@ -45,10 +46,10 @@ export interface OuroConfig {
   };
   reconcile: {
     intervalSec: number;
-    /** NAV change with no recorded flow that triggers an "unexplained jump" incident. */
+    /** a NAV change with no recorded flow that triggers an "unexplained jump" incident. */
     jumpPct: number;
     jumpMinUsd: number;
-    /** Round-to-round drop that wakes the agent for a post-mortem. */
+    /** round-to-round drop that wakes the agent for a post-mortem. */
     dropPct: number;
   };
   notify: {
@@ -68,15 +69,16 @@ export interface OuroConfig {
 export const DEFAULT_CONFIG: OuroConfig = {
   operator: { name: '', jurisdiction: '', timezone: 'UTC', addresses: [] },
   llm: {
-    provider: 'anthropic',
-    model: 'claude-sonnet-5-5',
+    provider: 'openrouter',
+    // the largest free model in pi's catalog at install time. the agent reviews this choice itself
+    model: 'nvidia/nemotron-3-ultra-550b-a55b:free',
     thinking: 'medium',
-    cheapModel: 'claude-haiku-4-5',
+    cheapModel: 'openrouter/free',
     proxy: true,
     proxyPort: 8787,
   },
   budget: {
-    mode: 'sponsor',
+    mode: 'capital',
     sponsorDailyUsd: 5,
     sponsorTotalUsd: null,
     perEpisodeUsd: 1.5,
@@ -105,6 +107,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === 'object' && !Array.isArray(v);
 }
 
+// // merge objects recursively. arrays and scalars in `over` replace the base value.
 export function deepMerge<T>(base: T, over: unknown): T {
   if (!isPlainObject(base) || !isPlainObject(over)) return (over === undefined ? base : (over as T));
   const out: Record<string, unknown> = { ...(base as Record<string, unknown>) };
@@ -123,7 +126,8 @@ export function saveConfig(paths: Paths, cfg: OuroConfig): void {
   writeJson(paths.config, cfg);
 }
 
-/** Operator-owned hard limits (root-owned file under /etc/ouroboros). Stricter than config always wins. */
+/** operator-owned hard limits (root-owned file under /etc/ouroboros). stricter than config always wins. */
+// // limits the operator owns. the file is root-owned and the lowest value always wins, so the agent cannot raise them.
 export interface Limits {
   sponsorDailyUsd?: number;
   sponsorTotalUsd?: number;
@@ -149,11 +153,13 @@ export interface EffectiveBudget {
   perEpisodeUsd: number;
 }
 
+// // the smallest of the numbers that are set, or null if none is
 function minDefined(...xs: Array<number | null | undefined>): number | null {
   const v = xs.filter((x): x is number => typeof x === 'number' && Number.isFinite(x));
   return v.length ? Math.min(...v) : null;
 }
 
+// // the budget actually enforced: the stricter of the config file and the operator's limits
 export function effectiveBudget(cfg: OuroConfig, limits: Limits): EffectiveBudget {
   return {
     mode: cfg.budget.mode,

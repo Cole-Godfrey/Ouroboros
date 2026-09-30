@@ -1,13 +1,15 @@
+// tests for when the agent is woken: triggers, gaps, backoff, pause and the agent's own wake requests.
+
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Scheduler } from '../src/core/scheduler.ts';
 import { DEFAULT_CONFIG, deepMerge } from '../src/lib/config.ts';
 import { HOUR, MINUTE } from '../src/lib/clock.ts';
-import { makeStore } from './helpers.ts';
+import { makeStore, PAID_LLM } from './helpers.ts';
 
 function setup(over: any = {}) {
   const env = makeStore();
-  const cfg = deepMerge(structuredClone(DEFAULT_CONFIG), over);
+  const cfg = deepMerge(deepMerge(structuredClone(DEFAULT_CONFIG), PAID_LLM), over);
   const gate = { ok: true, reason: undefined as string | undefined };
   const sched = new Scheduler({ store: env.store, config: () => cfg, precheck: () => gate, clock: env.clock.fn });
   sched.attach();

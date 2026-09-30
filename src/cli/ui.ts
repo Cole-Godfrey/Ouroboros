@@ -1,5 +1,6 @@
 import readline from 'node:readline';
 
+// colour only on a real terminal, and never when NO_COLOR is set
 const useColor = !!process.stdout.isTTY && !process.env.NO_COLOR;
 const c = (code: number, s: string) => (useColor ? `\x1b[${code}m${s}\x1b[0m` : s);
 export const bold = (s: string) => c(1, s);
@@ -34,7 +35,8 @@ export async function confirm(question: string, def = false): Promise<boolean> {
   return a.startsWith('y');
 }
 
-/** Read a secret without echoing it. From a pipe, reads one line. */
+/** read a secret without echoing it. from a pipe, reads one line. */
+// read a secret without echoing it. from a pipe, read one line.
 export function askHidden(question: string): Promise<string> {
   if (!process.stdin.isTTY) {
     return new Promise((resolve) => {
@@ -87,7 +89,8 @@ function stripAnsi(s: string): string {
   return s.replace(/\x1b\[[0-9;]*m/g, '');
 }
 
-/** Minimal flag parser: --name value, --flag, -f. Positionals are returned separately. */
+/** minimal flag parser: --name value, --flag, -f. positionals are returned separately. */
+// minimal flag parser: --name value, --name=value and --flag (for the names listed as booleans)
 export function parseArgs(argv: string[], booleans: string[] = []): { pos: string[]; flags: Record<string, string | true> } {
   const pos: string[] = [];
   const flags: Record<string, string | true> = {};

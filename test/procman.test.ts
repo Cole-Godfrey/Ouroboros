@@ -1,3 +1,5 @@
+// tests for the process manager that keeps the agent's strategies running.
+
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

@@ -1,3 +1,5 @@
+// tests for the state fold: profit and loss, the wealth index, drawdown, subsidy and inbox state.
+
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DAY, HOUR } from '../src/lib/clock.ts';

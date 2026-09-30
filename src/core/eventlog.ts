@@ -1,9 +1,9 @@
-// Append-only, hash-chained JSONL event log. This is the audit trail and the
+// append-only, hash-chained JSONL event log. this is the audit trail and the
 // single source of truth for money, decisions and system events.
 //
-// Every line commits to the hash of the previous line, so silent edits or
+// every line commits to the hash of the previous line, so silent edits or
 // deletions are detectable (`verify()`), by the operator and by the agent itself.
-// Writers from different processes serialise on a mkdir lock.
+// writers from different processes serialise on a mkdir lock.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -22,6 +22,7 @@ export interface LogEvent<T = any> {
 
 export const GENESIS_PREV = '0'.repeat(64);
 
+// each event's hash covers the previous hash, so editing or deleting any line breaks every hash after it
 export function hashEvent(prev: string, seq: number, ts: number, type: string, data: unknown): string {
   return createHash('sha256')
     .update(prev + '\n' + JSON.stringify({ seq, ts, type, data }))
@@ -48,6 +49,8 @@ export class EventLog {
     ensureDir(path.dirname(file));
   }
 
+  // append under a directory lock so several processes can write safely.
+  // a crash can leave a half-written last line, which is trimmed before the next append.
   append<T>(type: string, data: T, opts: { ts?: number } = {}): LogEvent<T> {
     return withLockSync(this.lockDir, () => {
       repairTail(this.file);
@@ -60,7 +63,8 @@ export class EventLog {
         prev = last.hash;
       }
       const ts = opts.ts ?? this.clock();
-      // Round-trip the payload once so the hash covers exactly what a reader will see.
+      // round-trip the payload once so the hash covers exactly what a reader will see.
+      // round-trip the payload once so the hash covers exactly what a reader will see
       const clean = JSON.parse(JSON.stringify(data === undefined ? null : data)) as T;
       const hash = hashEvent(prev, seq, ts, type, clean);
       const ev: LogEvent<T> = { seq, ts, type, data: clean, prev, hash };
@@ -69,12 +73,12 @@ export class EventLog {
     });
   }
 
-  /** Read every event. A partial trailing line (crash mid-write) is ignored. */
+  /** read every event. A partial trailing line (crash mid-write) is ignored. */
   readAll(): LogEvent[] {
     return this.readFrom(0).events;
   }
 
-  /** Read complete lines starting at a byte offset. Returns the offset just after the last complete line. */
+  /** read complete lines starting at a byte offset. returns the offset just after the last complete line. */
   readFrom(offset: number): { events: LogEvent[]; offset: number } {
     let fd: number;
     try {
@@ -97,7 +101,7 @@ export class EventLog {
         try {
           events.push(JSON.parse(line) as LogEvent);
         } catch {
-          // corrupt line: surfaced by verify(); skip here so readers keep working
+          // corrupt line: surfaced by verify(), skip here so readers keep working
         }
       }
       return { events, offset: offset + lastNl + 1 };

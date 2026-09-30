@@ -1,5 +1,5 @@
 #!/bin/sh
-# Entry point of the ouroboros service. Runs the boot supervisor; if the supervisor itself dies within
+# entry point of the ouroboros service. runs the boot supervisor, if the supervisor itself dies within
 # seconds of starting (a bad copy), falls back to the previous known-good copy.
 BOOT=/opt/ouroboros/boot
 start=$(date +%s)

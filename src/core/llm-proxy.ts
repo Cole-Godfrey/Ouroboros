@@ -1,8 +1,8 @@
-// Local metering proxy for LLM traffic.
+// local metering proxy for LLM traffic.
 //
-// Everything in the VM that talks to a model provider (Pi, sub-agents the agent
+// everything in the VM that talks to a model provider (Pi, sub-agents the agent
 // spawns, scripts it writes) is pointed here with a short-lived token instead of
-// the real API key. The proxy:
+// the real API key. the proxy:
 //   * forwards the request upstream with the real key (which never enters the
 //     agent's process tree),
 //   * counts tokens from the response (streaming or not) and records the cost in
@@ -16,7 +16,7 @@ import { Readable } from 'node:stream';
 import type { OuroConfig } from '../lib/config.ts';
 import { nullLogger, type Logger } from '../lib/log.ts';
 import { roundUsd } from '../lib/money.ts';
-import { PROVIDERS, type WireApi } from './llm.ts';
+import { isFreeModel, PROVIDERS, type WireApi } from './llm.ts';
 import type { Meter, Usage } from './meter.ts';
 
 interface TokenInfo {
@@ -31,7 +31,7 @@ export interface LlmProxyDeps {
   config: () => OuroConfig;
   getSecret: (name: string) => string | undefined;
   log?: Logger;
-  /** Test seam: where each provider's real API lives. */
+  /** test seam: where each provider's real API lives. */
   upstream?: (provider: string) => string;
 }
 
@@ -44,7 +44,9 @@ export interface Sniffed {
   seen: boolean;
 }
 
-/** Extracts model + token usage from provider responses without altering them. */
+/** extracts model + token usage from provider responses without altering them. */
+// reads token counts and cost out of a provider response without changing it.
+// works on streaming (server-sent events) and plain json responses for both wire formats.
 export class UsageSniffer {
   private api: WireApi;
   private streaming: boolean;
@@ -149,8 +151,11 @@ export class UsageSniffer {
 
 // ------------------------------------------------------------------ the proxy
 
+// headers that belong to one connection and must not be forwarded
 const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'host', 'content-length', 'content-encoding']);
 
+// a local reverse proxy in front of the model providers. it swaps a short-lived token for the real key,
+// refuses calls when the budget is spent, and records the cost of every call.
 export class LlmProxy {
   private d: LlmProxyDeps;
   private log: Logger;
@@ -163,6 +168,7 @@ export class LlmProxy {
     this.log = deps.log ?? nullLogger;
   }
 
+  // a token lives for one episode and can carry its own spending cap
   issueToken(o: { label: string; episode?: string; capUsd?: number }): string {
     const token = `ouro-${randomBytes(18).toString('hex')}`;
     this.tokens.set(token, { label: o.label, episode: o.episode, capUsd: o.capUsd, spentUsd: 0 });
@@ -218,6 +224,7 @@ export class LlmProxy {
     res.end(JSON.stringify(body));
   }
 
+  // authenticate, enforce the budget, forward to the provider with the real key, stream the answer back and account for it
   private async handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const url = new URL(req.url ?? '/', 'http://x');
     if (url.pathname === '/healthz') {
@@ -261,7 +268,7 @@ export class LlmProxy {
         const j = JSON.parse(body.toString('utf8'));
         streaming = j.stream === true;
         requestedModel = typeof j.model === 'string' ? j.model : undefined;
-        // OpenAI-style streams only report usage if asked to
+        // streams in the openai style only report usage if asked to
         if (spec.api === 'openai' && streaming && rest.includes('/chat/completions') && !j.stream_options?.include_usage) {
           j.stream_options = { ...(j.stream_options ?? {}), include_usage: true };
           body = Buffer.from(JSON.stringify(j));
@@ -321,7 +328,9 @@ export class LlmProxy {
   private account(provider: string, api: WireApi, s: Sniffed, requestedModel: string | undefined, found: { token: string; info: TokenInfo }): void {
     if (!s.seen) return;
     const model = s.model ?? requestedModel ?? 'unknown';
-    const { costUsd } = this.d.meter.record({ provider, model, usage: s.usage, costUsd: s.costUsd, episode: found.info.episode, source: 'proxy' });
+    // a request for a free model costs nothing even if the response names a different model
+    const reported = requestedModel && isFreeModel(requestedModel) ? 0 : s.costUsd;
+    const { costUsd } = this.d.meter.record({ provider, model, usage: s.usage, costUsd: reported, episode: found.info.episode, source: 'proxy' });
     found.info.spentUsd = roundUsd(found.info.spentUsd + costUsd);
     this.log.debug(`llm call ${provider}/${model}`, { ...s.usage, costUsd, label: found.info.label });
     void api;

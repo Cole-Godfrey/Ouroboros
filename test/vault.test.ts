@@ -1,3 +1,5 @@
+// tests for the encrypted vault and the redactor it feeds.
+
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

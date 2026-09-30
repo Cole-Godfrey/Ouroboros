@@ -1,6 +1,6 @@
-// The Charter is the operator's short list of non-negotiables (agent/CHARTER.md).
-// Its SHA-256 is "sealed" by the operator into a root-owned file at install time.
-// Every episode start compares the two. This is a tripwire, not a wall: the agent
+// the Charter is the operator's short list of non-negotiables (agent/CHARTER.md).
+// its SHA-256 is "sealed" by the operator into a root-owned file at install time.
+// every episode start compares the two. this is a tripwire, not a wall: the agent
 // has root in its VM, so a change is not impossible, but it can never be silent.
 
 import { createHash } from 'node:crypto';
@@ -13,7 +13,8 @@ export function charterFile(root: string): string {
   return path.join(root, CHARTER_FILE);
 }
 
-/** Hash of the charter with line endings normalised so git checkout settings cannot change it. */
+/** hash of the charter with line endings normalised so git checkout settings cannot change it. */
+// // hash the charter with normalised line endings, so git settings cannot change it
 export function charterSha(root: string): string | undefined {
   try {
     const text = fs.readFileSync(charterFile(root), 'utf8').replace(/\r\n/g, '\n');
@@ -40,6 +41,7 @@ export function readSeal(paths: Pick<Paths, 'charterSeal'>): string | undefined 
   }
 }
 
+// // unsealed is allowed (with a warning), a mismatch is not
 export function checkCharter(paths: Pick<Paths, 'charterSeal'>, root: string): CharterStatus {
   const sha = charterSha(root);
   if (!sha) return { ok: false, state: 'missing', message: `charter file not found at ${charterFile(root)}` };
@@ -49,7 +51,7 @@ export function checkCharter(paths: Pick<Paths, 'charterSeal'>, root: string): C
   return { ok: true, state: 'sealed-ok', sha, sealed, message: 'charter matches its seal' };
 }
 
-/** Write the seal. Needs write access to the seal path (root, for /etc/ouroboros). */
+/** write the seal. needs write access to the seal path (root, for /etc/ouroboros). */
 export function sealCharter(paths: Pick<Paths, 'charterSeal'>, root: string): string {
   const sha = charterSha(root);
   if (!sha) throw new Error('charter file missing');

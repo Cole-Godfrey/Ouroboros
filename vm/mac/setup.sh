@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Create the Ouroboros VM on your Mac and install the agent inside it.
+# create the Ouroboros VM on your Mac and install the agent inside it.
 #
 #   ./vm/mac/setup.sh [--name ouroboros] [--cpus 4] [--memory 8GiB] [--disk 80GiB] [--no-init] [--keep-awake]
 #
-# Requires macOS 13+ and Homebrew. Safe to re-run: it reuses an existing VM and repository copy.
+# requires macOS 13+ and Homebrew. safe to re-run: it reuses an existing VM and repository copy.
 set -euo pipefail
 
 NAME="${OURO_VM_NAME:-ouroboros}"

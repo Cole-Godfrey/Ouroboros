@@ -1,10 +1,12 @@
+// tests for reconciliation: valuing venues, anomaly incidents, drawdown guards and deposit handling.
+
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Reconciler, type VenueCall } from '../src/core/reconciler.ts';
 import { PriceOracle } from '../src/core/prices.ts';
 import { DEFAULT_CONFIG, deepMerge } from '../src/lib/config.ts';
 import { HOUR } from '../src/lib/clock.ts';
-import { makeStore } from './helpers.ts';
+import { makeStore, PAID_LLM } from './helpers.ts';
 
 function setup(cfgOver: any = {}) {
   const env = makeStore();
@@ -16,7 +18,7 @@ function setup(cfgOver: any = {}) {
     return { ok: true, result: a, durationMs: 1 };
   };
   const oracle = new PriceOracle({ sources: [{ name: 'fake', get: async (a) => (a === 'ETH' ? 2000 : undefined) }] });
-  const cfg = deepMerge(structuredClone(DEFAULT_CONFIG), cfgOver);
+  const cfg = deepMerge(deepMerge(structuredClone(DEFAULT_CONFIG), PAID_LLM), cfgOver);
   const guardCalls: string[] = [];
   const rec = new Reconciler({ store: env.store, oracle, callVenue, config: () => cfg, clock: env.clock.fn, onGuardTripped: (v) => { guardCalls.push(v.id); } });
   const register = (id: string, extra: any = {}) => env.store.append('venue.register', { id, module: `builtin/${id}`, ...extra });

@@ -1,10 +1,11 @@
-// The briefing is the first message of every episode: a compact, factual picture
+// the briefing is the first message of every episode: a compact, factual picture
 // of the world built from the independent ledger, so the agent starts from truth
 // instead of from its own recollection.
 
 import { fmtDuration, iso } from '../lib/clock.ts';
 import type { OuroConfig } from '../lib/config.ts';
 import { fmtPct, fmtUsd } from '../lib/money.ts';
+import { isFreeModel } from './llm.ts';
 import type { BudgetStatus } from './meter.ts';
 import type { Metrics, State } from './state.ts';
 
@@ -47,12 +48,14 @@ const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + '…'
 const ago = (now: number, ts: number) => `${fmtDuration(now - ts)} ago`;
 const pct = (x: number | undefined) => (x === undefined ? 'n/a' : `${x >= 0 ? '+' : ''}${(x * 100).toFixed(2)}%/day`);
 
+// // the first message of every episode. it is assembled from the ledger, so it is factual by construction,
+// // and it lists every trigger that woke the agent, the money, the budget, incidents, inbox and last handoff.
 export function buildBriefing(i: BriefingInput): string {
   const { state, metrics: m, budget: b, now, cfg } = i;
   const L: string[] = [];
   const primary = i.triggers[0];
 
-  L.push(`# Episode ${i.episodeNumber} (${i.episodeId}) — ${primary?.kind ?? 'manual'}`);
+  L.push(`# Episode ${i.episodeNumber} (${i.episodeId}): ${primary?.kind ?? 'manual'}`);
   L.push(`Time: ${iso(now)} · operator timezone ${cfg.operator.timezone} · model ${i.model}`);
   const last = state.episodes.at(-1);
   L.push(`Previous episode: ${last ? `${last.outcome ?? 'unknown'}, ended ${last.endedAt ? ago(now, last.endedAt) : 'n/a'}, cost ${fmtUsd(last.costUsd)}` : 'none (this is the first)'}`);
@@ -62,7 +65,7 @@ export function buildBriefing(i: BriefingInput): string {
   for (const t of i.triggers.slice(0, 12)) L.push(`- ${t.kind}${t.detail ? `: ${clip(t.detail, 300)}` : ''} (${ago(now, t.ts)})`);
   L.push('');
 
-  L.push('## Money (independent ledger — it outranks your memory)');
+  L.push('## Money (independent ledger, it outranks your memory)');
   L.push(`NAV ${fmtUsd(m.navUsd)} · contributed ${fmtUsd(m.netContributedUsd)} · P&L ${m.pnlUsd >= 0 ? '+' : ''}${fmtUsd(m.pnlUsd)}${m.pnlPct !== null ? ` (${fmtPct(m.pnlPct)})` : ''} · after operator subsidy ${fmtUsd(m.pnlAfterSubsidyUsd)}`);
   L.push(`Growth (log, flow-adjusted): 1d ${pct(m.growth.d1)} · 7d ${pct(m.growth.d7)} · 30d ${pct(m.growth.d30)} · all ${pct(m.growth.all)}${m.doublingDays ? ` · doubling ≈ ${m.doublingDays.toFixed(1)}d` : ''}`);
   L.push(`Drawdown: now ${fmtPct(m.drawdown)}, max ${fmtPct(m.maxDrawdown)} · burn ≈ ${fmtUsd(m.burnPerDayUsd)}/day${m.runwayDays !== undefined ? ` · runway ${m.runwayDays.toFixed(0)}d` : ''}`);
@@ -79,7 +82,7 @@ export function buildBriefing(i: BriefingInput): string {
       L.push(`- ${v.id}${v.strategy ? ` [strategy ${v.strategy}]` : ''}: ${v.latest ? fmtUsd(v.latest.totalUsd) : 'never reconciled'}${top ? ` (${top})` : ''}${v.latest ? `, ${ago(now, v.latest.ts)}` : ''}${v.lastError ? ` ⚠ last error: ${clip(v.lastError.message, 120)}` : ''}`);
     }
   } else {
-    L.push('Venues: none registered yet — you hold no reconciled capital. Register one (venue_register) once funds exist.');
+    L.push('Venues: none registered yet, so you hold no reconciled capital. Register one (venue_register) once funds exist.');
   }
   if (m.unclassifiedUsd > 0) L.push(`⚠ ${fmtUsd(m.unclassifiedUsd)} of inflows are unclassified (excluded from P&L).`);
   if (m.unpricedAssets.length) L.push(`⚠ Unpriced assets excluded from NAV: ${m.unpricedAssets.join(', ')}`);
@@ -87,6 +90,8 @@ export function buildBriefing(i: BriefingInput): string {
 
   L.push('## Inference budget');
   L.push(`Mode ${b.mode}. Today ${fmtUsd(b.spentTodayUsd)} of ${fmtUsd(b.dailyLimitUsd)}. This episode may spend at most ${fmtUsd(i.episodeBudgetUsd)}. Lifetime ${b.mode} spend ${fmtUsd(b.spentTotalUsd)}${b.totalLimitUsd !== null ? ` of ${fmtUsd(b.totalLimitUsd)}` : ''}.`);
+  // a free model costs nothing, so point the agent at the upgrade path instead of a budget warning
+  if (isFreeModel(i.model)) L.push('You think on a free model, so thinking costs nothing. A paid model is smarter but comes out of your capital: read the model-selection skill before switching.');
   L.push('Every token you think is paid for by someone. Prefer cheap checks, encode routines as code, and end the episode when there is nothing worth doing.');
   L.push('');
 
@@ -109,7 +114,7 @@ export function buildBriefing(i: BriefingInput): string {
   } else L.push('No unseen operator messages.');
   if (openReq.length) {
     L.push('Your open requests to the operator:');
-    for (const it of openReq.slice(0, 8)) L.push(`- #${it.id} [${it.status}] ${clip(it.title, 100)} (${ago(now, it.ts)})${it.blocking ? ` — blocking: ${clip(it.blocking, 100)}` : ''}`);
+    for (const it of openReq.slice(0, 8)) L.push(`- #${it.id} [${it.status}] ${clip(it.title, 100)} (${ago(now, it.ts)})${it.blocking ? ` (blocking: ${clip(it.blocking, 100)})` : ''}`);
   }
   L.push('');
 
@@ -140,7 +145,7 @@ export function buildBriefing(i: BriefingInput): string {
 
   const sm = state.selfmod;
   L.push('## Harness');
-  L.push(`Running release ${i.release.sha?.slice(0, 10) ?? 'unknown'}${sm.probation ? ` — on probation until ${iso(sm.probation.until)} (a crash loop rolls it back)` : ''}. Last known good: ${sm.lkg?.slice(0, 10) ?? 'unknown'}.${sm.bad.length ? ` Rejected releases: ${sm.bad.slice(-3).map((s) => s.slice(0, 10)).join(', ')}.` : ''}`);
+  L.push(`Running release ${i.release.sha?.slice(0, 10) ?? 'unknown'}${sm.probation ? ` (on probation until ${iso(sm.probation.until)}, a crash loop rolls it back)` : ''}. Last known good: ${sm.lkg?.slice(0, 10) ?? 'unknown'}.${sm.bad.length ? ` Rejected releases: ${sm.bad.slice(-3).map((s) => s.slice(0, 10)).join(', ')}.` : ''}`);
   const lastRb = [...sm.history].reverse().find((h) => h.kind === 'rollback' && now - h.ts < 86_400_000);
   if (lastRb) L.push(`⚠ A change was rolled back ${ago(now, lastRb.ts)}: ${clip(lastRb.reason ?? '', 300)}`);
   if (i.charterNote) L.push(`⚠ Charter: ${i.charterNote}`);

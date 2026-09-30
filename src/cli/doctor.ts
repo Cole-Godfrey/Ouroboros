@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { checkCharter } from '../core/charter.ts';
 import { EventLog } from '../core/eventlog.ts';
-import { providerKeyEnv } from '../core/llm.ts';
+import { PROVIDERS, providerKeyEnv } from '../core/llm.ts';
 import { Vault } from '../core/vault.ts';
 import { loadConfig } from '../lib/config.ts';
 import { readJson } from '../lib/fsx.ts';
@@ -17,6 +17,7 @@ import { resolvePaths } from '../lib/paths.ts';
 import { apiCall } from '../toolkit/client.ts';
 import { dim, fail, ok, warn } from './ui.ts';
 
+// // try to open a tcp connection: open means reachable, refused means the host answered, timeout means filtered
 function tcpProbe(host: string, port: number, timeoutMs = 2000): Promise<'open' | 'closed' | 'blocked'> {
   return new Promise((resolve) => {
     const s = net.connect({ host, port });
@@ -39,6 +40,8 @@ function defaultGateway(): string | undefined {
   }
 }
 
+// // check the install, then check that the containment the charter relies on actually holds.
+// // returns the number of problems found, which becomes the exit code.
 export async function runDoctor(deep: boolean): Promise<number> {
   const paths = resolvePaths();
   const cfg = loadConfig(paths);
@@ -104,12 +107,15 @@ export async function runDoctor(deep: boolean): Promise<number> {
 
   // network: works, and containment holds
   try {
-    await dns.lookup('api.anthropic.com');
-    const r = await fetch('https://api.anthropic.com/', { method: 'HEAD', signal: AbortSignal.timeout(8000) });
-    out(ok(`internet reachable (api.anthropic.com answered ${r.status})`));
+    // test the route to the configured model provider, since that is the connection the agent depends on
+    const upstream = PROVIDERS[cfg.llm.provider]?.upstream ?? 'https://api.anthropic.com';
+    await dns.lookup(new URL(upstream).hostname);
+    const r = await fetch(upstream + '/', { method: 'HEAD', signal: AbortSignal.timeout(8000) });
+    out(ok(`internet reachable (${new URL(upstream).hostname} answered ${r.status})`));
   } catch (e) {
     out(fail(`cannot reach the internet: ${e instanceof Error ? e.message : e}`), true);
   }
+  // // isolation test: the host and the gateway must not accept connections on common ports
   const gw = defaultGateway();
   const targets = [...new Set(['host.lima.internal', '192.168.5.2', gw].filter(Boolean) as string[])];
   const open: string[] = [];

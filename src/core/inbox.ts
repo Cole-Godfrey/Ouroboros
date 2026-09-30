@@ -1,5 +1,5 @@
-// The inbox is the only channel between the agent and its operator.
-// Everything is an event in the audit log; the state fold provides the views.
+// the inbox is the only channel between the agent and its operator.
+// everything is an event in the audit log, the state fold provides the views.
 
 import { localDate, systemClock, type Clock } from '../lib/clock.ts';
 import { shortId } from '../lib/ids.ts';
@@ -10,10 +10,10 @@ export interface NewInboxItem {
   title: string;
   body?: string;
   steps?: string[];
-  /** Names of secrets the operator should provide with `ouro secret set NAME`. */
+  /** names of secrets the operator should provide with `ouro secret set NAME`. */
   secrets?: string[];
   urgency?: InboxItem['urgency'];
-  /** What the agent will do (or cannot do) until this is resolved. */
+  /** what the agent will do (or cannot do) until this is resolved. */
   blocking?: string;
   from?: InboxItem['from'];
 }
@@ -24,6 +24,7 @@ export interface InboxOptions {
   timezone?: () => string;
 }
 
+// the only channel between agent and operator. all state lives in the audit log.
 export class Inbox {
   private store: StateStore;
   private clock: Clock;
@@ -44,7 +45,9 @@ export class Inbox {
     }
   }
 
-  /** Create an item. Agent-originated non-urgent items beyond the daily cap are recorded but not pushed. */
+  /** create an item. agent-originated non-urgent items beyond the daily cap are recorded but not pushed. */
+  // non-urgent items from the agent are capped per day. over the cap they are still recorded but not pushed to the phone,
+  // which forces the agent to batch its requests.
   create(item: NewInboxItem): { id: string; throttled: boolean } {
     this.store.sync();
     const from = item.from ?? 'agent';
@@ -74,7 +77,7 @@ export class Inbox {
     return { id, throttled };
   }
 
-  /** Operator says something to the agent without replying to a specific item. */
+  /** operator says something to the agent without replying to a specific item. */
   say(text: string, channel = 'cli'): string {
     const { id } = this.create({ kind: 'message', from: 'operator', title: text.slice(0, 80), body: text, urgency: 'high' });
     this.store.append('inbox.reply', { id, by: 'operator', text, channel });
@@ -116,7 +119,7 @@ export class Inbox {
     return this.store.state.inbox.get(id);
   }
 
-  /** What the agent should read now (and then ack). */
+  /** what the agent should read now (and then ack). */
   unseenForAgent(): InboxItem[] {
     this.store.sync();
     return this.store.state.unseenForAgent();

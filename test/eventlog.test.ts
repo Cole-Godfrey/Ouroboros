@@ -1,3 +1,5 @@
+// tests for the hash-chained audit log: ordering, tamper detection, crash repair and concurrent writers.
+
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

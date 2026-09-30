@@ -1,9 +1,9 @@
-// Decides when the agent should think.
+// decides when the agent should think.
 //
-// Thinking costs money, so the agent is not polled on a fixed loop. It sleeps
+// thinking costs money, so the agent is not polled on a fixed loop. it sleeps
 // until one of: the operator wrote, something broke, a timer it set for itself
-// fires, a strategy died, or a heartbeat interval passes. Triggers are coalesced
-// into one episode; the briefing lists all of them.
+// fires, a strategy died, or a heartbeat interval passes. triggers are coalesced
+// into one episode, the briefing lists all of them.
 
 import type { OuroConfig } from '../lib/config.ts';
 import { systemClock, type Clock } from '../lib/clock.ts';
@@ -17,7 +17,7 @@ import type { StateStore } from './state.ts';
 export interface SchedulerDeps {
   store: StateStore;
   config: () => OuroConfig;
-  /** From the runner: can an episode start right now, and if not, why. */
+  /** from the runner: can an episode start right now, and if not, why. */
   precheck: () => { ok: boolean; reason?: string };
   clock?: Clock;
   log?: Logger;
@@ -62,7 +62,7 @@ export class Scheduler {
     if (this.pending.length > 50) this.pending.splice(0, this.pending.length - 50);
   }
 
-  /** Public so the daemon/CLI can poke the agent. */
+  /** public so the daemon/CLI can poke the agent. */
   poke(kind: TriggerKind, detail?: string): void {
     this.push(kind, detail);
   }
@@ -93,13 +93,16 @@ export class Scheduler {
     }
   }
 
+  // after failures wait longer between episodes (doubling, capped at 30 minutes) so a broken setup does not burn budget
   private backoffMs(): number {
     if (!this.failures) return 0;
     const cfg = this.d.config();
     return Math.min(30 * 60_000, cfg.schedule.minGapSec * 1000 * 2 ** this.failures);
   }
 
-  /** Called every few seconds by the daemon. Returns a request when an episode should start now. */
+  /** called every few seconds by the daemon. returns a request when an episode should start now. */
+  // called every few seconds. gathers every reason to wake, applies the pause, gap and budget checks,
+  // and returns one coalesced episode request when it is time.
   tick(now = this.clock()): EpisodeRequest | undefined {
     this.d.store.sync(); // pick up anything the CLI appended directly to the log
     const st = this.d.store.state;
@@ -114,10 +117,12 @@ export class Scheduler {
     const dueWakes = st.pendingWakes().filter((w) => w.at <= now);
     for (const w of dueWakes) triggers.push({ kind: 'timer', detail: w.reason, ts: w.at });
     if (now >= this.nextHeartbeatAt) triggers.push({ kind: 'heartbeat', ts: this.nextHeartbeatAt });
+    // the very first episode always runs, even with nothing else pending
     const genesisDone = st.episodes.some((e) => e.reason === 'genesis' && e.outcome === 'completed');
     if (!genesisDone) triggers.unshift({ kind: 'genesis', ts: now });
     if (!triggers.length) return undefined;
 
+    // operator messages and incidents skip the normal minimum gap
     const urgent = triggers.some((t) => t.kind === 'operator' || t.kind === 'incident');
     const gapMs = Math.max(urgent ? 10_000 : cfg.schedule.minGapSec * 1000, this.backoffMs());
     if (now - this.lastEndedAt < gapMs) return undefined;
@@ -130,6 +135,7 @@ export class Scheduler {
     this.pending = [];
     for (const w of dueWakes) this.d.store.append('wake.done', { id: w.id });
     const tierWanted = dueWakes.find((w) => w.tier)?.tier ?? this.nextTier;
+    // urgent and first-boot episodes always use the main model, routine wakes may use the cheap tier
     const tier: 'cheap' | 'default' = urgent || triggers.some((t) => t.kind === 'genesis') ? 'default' : (tierWanted ?? 'default');
     this.nextTier = undefined;
     // an episode counts as the heartbeat
@@ -137,11 +143,13 @@ export class Scheduler {
     return { triggers: this.order(triggers), tier };
   }
 
+  // most important trigger first, so the briefing leads with what matters
   private order(ts: Trigger[]): Trigger[] {
     const rank: Record<string, number> = { genesis: 0, operator: 1, incident: 2, selfmod: 3, strategy: 4, resume: 5, timer: 6, budget: 7, manual: 8, heartbeat: 9 };
     return [...ts].sort((a, b) => (rank[a.kind] ?? 99) - (rank[b.kind] ?? 99) || a.ts - b.ts);
   }
 
+  // after an episode: count failures for backoff and book the next wake-up the agent asked for
   onEpisodeEnd(result: EpisodeResult, end?: EndInfo): void {
     const now = this.clock();
     const cfg = this.d.config();
@@ -154,8 +162,10 @@ export class Scheduler {
     else this.failures = 0;
     const requested = end?.nextWakeMinutes;
     if (end?.tier) this.nextTier = end.tier;
+    // the agent's chosen time is clamped to the allowed range and stored as a wake request so it survives restarts.
+    // the heartbeat stays as a safety net at the maximum interval.
     if (requested) {
-      // the agent's chosen wake-up is persisted (survives restarts); the heartbeat stays as a safety net at the maximum interval
+      // the agent's chosen wake-up is persisted (survives restarts), the heartbeat stays as a safety net at the maximum interval
       const sec = Math.min(cfg.schedule.heartbeatMaxSec, Math.max(cfg.schedule.heartbeatMinSec, requested * 60));
       this.nextHeartbeatAt = now + Math.max(cfg.schedule.heartbeatMaxSec * 1000, this.backoffMs());
       this.d.store.append('wake.request', { id: newId('wk'), at: now + Math.max(sec * 1000, this.backoffMs()), reason: end?.reason ?? 'requested at episode end', by: 'agent', tier: end?.tier });

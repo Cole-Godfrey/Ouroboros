@@ -1,3 +1,5 @@
+// shared test helpers: temp directories, a fake clock and isolated environments
+
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,7 +12,7 @@ process.on('exit', () => {
   for (const d of made) fs.rmSync(d, { recursive: true, force: true });
 });
 
-/** A fresh temp directory, removed when the test process exits. */
+/** a fresh temp directory, removed when the test process exits. */
 export function tmpDir(prefix = 'ouro-test-'): string {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   made.add(d);
@@ -39,7 +41,7 @@ export function fakeClock(start = Date.UTC(2026, 0, 1, 12, 0, 0)): Clock {
   return c;
 }
 
-/** A complete isolated environment (paths under a temp dir). */
+// a complete isolated environment with every path under one temp dir
 export function tmpEnv(): { dir: string; paths: Paths; env: NodeJS.ProcessEnv } {
   const dir = tmpDir();
   const env: NodeJS.ProcessEnv = {
@@ -60,3 +62,9 @@ export function makeStore(clock = fakeClock()): { store: StateStore; clock: Cloc
   const log = new EventLog(file, { clock: clock.fn });
   return { store: new StateStore(log), clock, dir, file };
 }
+
+// config overrides for tests that exercise paid-model metering (the shipped default is a free model)
+export const PAID_LLM = {
+  llm: { provider: 'anthropic', model: 'claude-sonnet-5-5', cheapModel: 'claude-haiku-4-5' },
+  budget: { mode: 'sponsor' as const },
+};

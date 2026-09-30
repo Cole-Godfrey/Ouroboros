@@ -1,4 +1,4 @@
-// Tiny fetch wrapper with timeouts, retries and readable errors.
+// tiny fetch wrapper with timeouts, retries and readable errors.
 
 export class HttpError extends Error {
   status: number;
@@ -22,6 +22,7 @@ export interface FetchOpts {
   signal?: AbortSignal;
 }
 
+// fetch with a timeout and a few retries on network errors and server failures
 export async function fetchText(url: string, opts: FetchOpts = {}): Promise<{ status: number; text: string; headers: Headers }> {
   const retries = opts.retries ?? 0;
   let lastErr: unknown;

@@ -1,3 +1,5 @@
+// tests for the operator cli, run as a real subprocess against a temporary state directory with the daemon down.
+
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -21,7 +23,7 @@ function setup() {
 
 test('init (non-interactive) sets up state, vault, wallet, limits and the charter seal', () => {
   const t = setup();
-  const r = t.ouro(['init', '--yes', '--jurisdiction', 'US-CA', '--timezone', 'America/Los_Angeles', '--key-from-env', 'TEST_KEY', '--daily-budget', '4', '--episode-budget', '1']);
+  const r = t.ouro(['init', '--yes', '--jurisdiction', 'US-CA', '--timezone', 'America/Los_Angeles', '--provider', 'anthropic', '--model', 'claude-sonnet-5-5', '--mode', 'sponsor', '--key-from-env', 'TEST_KEY', '--daily-budget', '4', '--episode-budget', '1']);
   assert.equal(r.code, 0, r.out);
   const cfg = JSON.parse(fs.readFileSync(t.paths.config, 'utf8'));
   assert.equal(cfg.operator.jurisdiction, 'US-CA');
@@ -44,7 +46,7 @@ test('init (non-interactive) sets up state, vault, wallet, limits and the charte
 
 test('operator flows work with the daemon down: fund, secret, say/reply/done, budget, pause, ledger, charter', () => {
   const t = setup();
-  t.ouro(['init', '--yes', '--key-from-env', 'TEST_KEY']);
+  t.ouro(['init', '--yes', '--provider', 'anthropic', '--model', 'claude-sonnet-5-5', '--key-from-env', 'TEST_KEY']);
 
   assert.equal(t.ouro(['fund', 'add', '1', '--venue', 'evm-wallet', '--note', 'first dollar']).code, 0);
   const funds = t.ouro(['fund']);
@@ -109,7 +111,7 @@ test('a modified charter is reported as a mismatch against the operator seal', (
 
 test('wallet export refuses to print the key without an interactive terminal', () => {
   const t = setup();
-  t.ouro(['init', '--yes', '--key-from-env', 'TEST_KEY']);
+  t.ouro(['init', '--yes', '--provider', 'anthropic', '--model', 'claude-sonnet-5-5', '--key-from-env', 'TEST_KEY']);
   const address = JSON.parse(fs.readFileSync(t.paths.wallets, 'utf8')).evm.address as string;
   const r = t.ouro(['wallet', 'export']);
   assert.notEqual(r.code, 0);

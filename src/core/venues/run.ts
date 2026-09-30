@@ -5,13 +5,15 @@ import type { Paths } from '../../lib/paths.ts';
 import { RESULT_MARKER } from '../venue-runner.ts';
 import type { RunnerResult } from './types.ts';
 
-/** `builtin/<name>` -> the reference adapters shipped in this release; relative -> $OURO_HOME/venues; absolute as-is. */
+/** `builtin/<name>` -> the reference adapters shipped in this release, relative -> $OURO_HOME/venues, absolute as-is. */
+// where an adapter's code lives: builtin ones ship with the release, relative paths are under the state directory
 export function resolveVenueModule(module: string, paths: Pick<Paths, 'root' | 'home'>): string {
   if (module.startsWith('builtin/')) return path.join(paths.root, 'src', 'core', 'venues', `${module.slice('builtin/'.length)}.ts`);
   if (path.isAbsolute(module)) return module;
   return path.join(paths.home, 'venues', module);
 }
 
+// the only variables an adapter process inherits. its declared secrets are added separately.
 const PASS_THROUGH_ENV = [
   'PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ', 'TMPDIR', 'NODE_OPTIONS',
   'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy',
@@ -23,7 +25,7 @@ export interface RunVenueOptions {
   module: string;
   method: 'snapshot' | 'flows' | 'describe';
   args?: unknown;
-  /** Secrets to inject (already resolved from the vault). */
+  /** secrets to inject (already resolved from the vault). */
   secrets?: Record<string, string>;
   venueId?: string;
   timeoutMs?: number;
@@ -31,6 +33,7 @@ export interface RunVenueOptions {
   now?: number;
 }
 
+// run one adapter method in its own short-lived node process, so a buggy or hanging adapter cannot hurt the daemon
 export function runVenueMethod<T = unknown>(opts: RunVenueOptions): Promise<RunnerResult<T>> {
   const started = Date.now();
   const modulePath = resolveVenueModule(opts.module, opts.paths);

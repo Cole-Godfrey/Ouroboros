@@ -1,4 +1,4 @@
-// Secret redaction. The vault registers every secret value here; anything that
+// secret redaction. the vault registers every secret value here, anything that
 // leaves the daemon toward the model, a log file or a notification passes through it.
 
 export interface RedactorOptions {
@@ -14,6 +14,8 @@ const GENERIC_PATTERNS: Array<[RegExp, string]> = [
   [/\b\d{8,10}:[A-Za-z0-9_-]{35}\b/g, '«TELEGRAM_BOT_TOKEN»'],
 ];
 
+// masks secrets in any text. exact values are replaced first (longest first, so a secret that contains another
+// is not half-masked), then generic key patterns catch secrets the vault does not know about.
 export class Redactor {
   private secrets = new Map<string, string>(); // value -> name
   private minLength: number;
@@ -23,7 +25,7 @@ export class Redactor {
     this.minLength = opts.minLength ?? 8;
   }
 
-  /** Replace the full secret set (called after every vault change). */
+  /** replace the full secret set (called after every vault change). */
   setSecrets(entries: Array<[name: string, value: string]>): void {
     this.secrets.clear();
     for (const [name, value] of entries) this.add(name, value);
@@ -54,7 +56,8 @@ export class Redactor {
     return out;
   }
 
-  /** Deep-redact any JSON-serialisable value. */
+  /** deep-redact any JSON-serialisable value. */
+  // redact every string inside a json-like value
   redactValue<T>(value: T): T {
     if (typeof value === 'string') return this.redact(value) as unknown as T;
     if (Array.isArray(value)) return value.map((v) => this.redactValue(v)) as unknown as T;
@@ -67,5 +70,6 @@ export class Redactor {
   }
 }
 
-/** Process-wide redactor shared by logger, notifier and API. */
+/** process-wide redactor shared by logger, notifier and API. */
+// one shared instance, so a secret added anywhere is masked everywhere
 export const globalRedactor = new Redactor();

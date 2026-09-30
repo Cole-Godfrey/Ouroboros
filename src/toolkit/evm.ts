@@ -1,5 +1,5 @@
-// EVM wallet helpers for the agent's own on-chain "bank account".
-// Private keys live only in the vault (WALLET_EVM_KEY); wallets.json holds the public address.
+// wallet helpers for the agent's own on-chain "bank account" (evm chains).
+// private keys live only in the vault (WALLET_EVM_KEY), wallets.json holds the public address.
 
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { readJson, writeJson } from '../lib/fsx.ts';
@@ -18,7 +18,8 @@ export function addressOf(privateKey: string): string {
   return privateKeyToAccount(privateKey as `0x${string}`).address;
 }
 
-/** Create the wallet once. Returns the (existing or new) public address; never returns the key. */
+/** create the wallet once. returns the (existing or new) public address, never returns the key. */
+// create the wallet once. the private key goes straight into the vault and is never returned.
 export function ensureEvmWallet(vault: Vault, walletsFile: string, now = Date.now()): { address: string; created: boolean } {
   const book = readJson<WalletBook>(walletsFile, {});
   const existingKey = vault.has('WALLET_EVM_KEY') ? vault.get('WALLET_EVM_KEY') : undefined;

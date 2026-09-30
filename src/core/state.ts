@@ -1,6 +1,6 @@
-// State is a pure fold over the event log. Nothing here is stored separately:
+// state is a pure fold over the event log. nothing here is stored separately:
 // if the log is intact, the state (NAV, P&L, budgets, inbox, incidents...) is
-// exactly reproducible. That is what makes the ledger trustworthy.
+// exactly reproducible. that is what makes the ledger trustworthy.
 
 import { DAY, MINUTE, localDate } from '../lib/clock.ts';
 import { roundUsd } from '../lib/money.ts';
@@ -89,7 +89,7 @@ export interface InboxItem {
   replies: InboxReply[];
   ackedAt?: number;
   pushedAt?: number;
-  /** Over the daily non-urgent cap: recorded, but not pushed to the operator's phone. */
+  /** over the daily non-urgent cap: recorded, but not pushed to the operator's phone. */
   throttled?: boolean;
 }
 
@@ -193,6 +193,8 @@ export interface Metrics {
   episodes: number;
 }
 
+// in-memory history is capped so a long-running daemon does not grow without bound.
+// the log on disk keeps everything, these only limit what the fold remembers.
 const MAX_LLM = 20_000;
 const MAX_TRADES = 5_000;
 const MAX_EPISODES = 500;
@@ -201,6 +203,7 @@ const MAX_SELFMOD = 300;
 
 // ---------------------------------------------------------------- state
 
+// every field below is derived from events by apply(). nothing writes to it directly.
 export class State {
   head = { seq: 0, hash: '' };
   version = 0;
@@ -238,11 +241,12 @@ export class State {
     bad: string[];
   } = { history: [], bad: [] };
   journal: JournalRec[] = [];
-  /** Limits the operator set through the CLI; the agent cannot raise them by editing config.json. */
+  /** limits the operator set through the CLI, the agent cannot raise them by editing config.json. */
   operatorLimits: { sponsorDailyUsd?: number; sponsorTotalUsd?: number; perEpisodeUsd?: number } = {};
 
   private indexCache?: { version: number; points: IndexPoint[] };
 
+  // fold one event into the state. unknown event types are ignored so old code can read newer logs.
   apply(ev: LogEvent): void {
     this.head = { seq: ev.seq, hash: ev.hash };
     this.version++;
@@ -252,6 +256,7 @@ export class State {
         this.genesis ??= { ts: ev.ts, version: d.version, charterSha: d.charterSha };
         break;
 
+      // money the operator put in or took out. these are flows, not returns.
       case 'capital.in':
       case 'capital.out': {
         const kind = ev.type === 'capital.in' ? 'in' : 'out';
@@ -262,6 +267,7 @@ export class State {
         break;
       }
 
+      // a venue is any place the agent holds value. re-registering merges with what we knew before.
       case 'venue.register': {
         const prev = this.venues.get(d.id);
         this.venues.set(d.id, {
@@ -290,6 +296,7 @@ export class State {
         if (v) v.lastError = { ts: ev.ts, message: String(d.message ?? '') };
         break;
       }
+      // a valuation can arrive for a venue we never saw registered (a manual value), so create it on demand.
       case 'valuation': {
         let v = this.venues.get(d.venue);
         if (!v) {
@@ -315,6 +322,7 @@ export class State {
         break;
       }
 
+      // expenses are booked to whoever paid: the operator (sponsor) or the agent's own capital.
       case 'expense': {
         const usd = Number(d.usd) || 0;
         const cat = (this.expenses.byCategory[d.category ?? 'other'] ??= { capitalUsd: 0, sponsorUsd: 0 });
@@ -351,6 +359,7 @@ export class State {
         if (this.trades.length > MAX_TRADES) this.trades.splice(0, this.trades.length - MAX_TRADES);
         break;
       }
+      // llm usage feeds both the budget gate and the subsidy total.
       case 'llm.usage': {
         const usd = Number(d.costUsd) || 0;
         const funding: 'sponsor' | 'capital' = d.funding === 'capital' ? 'capital' : 'sponsor';
@@ -386,6 +395,7 @@ export class State {
           throttled: d.throttled,
         });
         break;
+      // an operator reply marks an open agent request as answered.
       case 'inbox.reply': {
         const it = this.inbox.get(d.id);
         if (it) {
@@ -433,6 +443,7 @@ export class State {
         this.currentEpisode = rec;
         break;
       }
+      // an episode can end without a matching start after a restart, so rebuild a record from the end event.
       case 'episode.end': {
         const rec = this.currentEpisode && this.currentEpisode.id === d.id ? this.currentEpisode : ({ id: d.id, startedAt: ev.ts - (d.durationMs ?? 0), reason: 'unknown', costUsd: 0 } as EpisodeRec);
         rec.endedAt = ev.ts;
@@ -457,12 +468,15 @@ export class State {
         break;
       }
 
+      // pause stops waking the agent. halt and kill also stop strategies.
       case 'control':
         if (d.action === 'pause') this.control = { paused: true, halted: false, since: ev.ts, by: d.by ?? '' };
         else if (d.action === 'resume') this.control = { paused: false, halted: false, since: ev.ts, by: d.by ?? '' };
         else if (d.action === 'halt' || d.action === 'kill') this.control = { paused: true, halted: true, since: ev.ts, by: d.by ?? '' };
         break;
 
+      // self-modification history, plus the pointers the boot supervisor and briefing care about:
+      // the running release, the last known good one, the probation window and rejected commits.
       case 'selfmod.propose':
       case 'selfmod.gate':
       case 'selfmod.promote':
@@ -501,6 +515,7 @@ export class State {
         this.selfmod.lkg = d.sha;
         break;
 
+      // limits set through the cli. the daemon takes the lowest of these and the config file.
       case 'operator.limits':
         for (const k of ['sponsorDailyUsd', 'sponsorTotalUsd', 'perEpisodeUsd'] as const) if (typeof d[k] === 'number') this.operatorLimits[k] = d[k];
         break;
@@ -521,7 +536,8 @@ export class State {
     return [...this.venues.values()].filter((v) => !v.removed);
   }
 
-  /** Sum of the latest valuation of every live venue. Paper (simulated) venues never count. */
+  /** sum of the latest valuation of every live venue. paper (simulated) venues never count. */
+  // nav is only ever what venues report. the agent cannot assert a balance.
   liveNavUsd(): number {
     let sum = 0;
     for (const v of this.liveVenues()) if (v.kind !== 'paper') sum += v.latest?.totalUsd ?? 0;
@@ -536,7 +552,10 @@ export class State {
     return roundUsd(this.expenses.sponsorUsd + this.llm.sponsorUsd);
   }
 
-  /** Chain-linked, flow-adjusted (Modified Dietz) wealth index: deposits do not look like profit. */
+  /** chain-linked, flow-adjusted (Modified Dietz) wealth index: deposits do not look like profit. */
+  // chain-linked wealth index (modified dietz). each step's return is the gain after removing
+  // flows that happened inside the step, weighted by how long they were invested.
+  // this is what lets a deposit sit in the ledger without looking like profit.
   wealthIndex(): IndexPoint[] {
     if (this.indexCache && this.indexCache.version === this.version) return this.indexCache.points;
     const pts = this.navSeries;
@@ -561,6 +580,7 @@ export class State {
           wF += (t1 > t0 ? (t1 - Math.max(f.ts, t0)) / (t1 - t0) : 0) * amt;
           fi++;
         }
+        // return over the step = (end - start - flows) / (start + time-weighted flows)
         const denom = v0 + wF;
         let r = 0;
         if (denom > 1e-9) r = (v1 - v0 - F) / denom;
@@ -574,7 +594,8 @@ export class State {
     return out;
   }
 
-  /** Flow-adjusted return between the two most recent NAV points, plus the raw change and flows in between. */
+  /** flow-adjusted return between the two most recent NAV points, plus the raw change and flows in between. */
+  // the most recent reconcile round, used to spot unexplained jumps and drops.
   lastRound(): { t0: number; t1: number; v0: number; v1: number; flowUsd: number; returnPct: number } | undefined {
     const pts = this.navSeries;
     if (pts.length < 2) return undefined;
@@ -587,6 +608,8 @@ export class State {
     return { t0: a.ts, t1: b.ts, v0: a.usd, v1: b.usd, flowUsd, returnPct: ret };
   }
 
+  // continuous growth rate per day over a trailing window, from the wealth index.
+  // too little history gives undefined instead of a misleading number.
   growthPerDay(windowMs: number | 'all'): number | undefined {
     const idx = this.wealthIndex();
     if (idx.length < 2) return undefined;
@@ -604,6 +627,7 @@ export class State {
     return Math.log(end.index / start.index) / (dt / DAY);
   }
 
+  // drawdown is measured on the wealth index, so deposits never hide a loss.
   drawdown(): { max: number; current: number } {
     let peak = 0;
     let max = 0;
@@ -616,7 +640,8 @@ export class State {
     return { max, current: cur };
   }
 
-  /** Inference + other operating cost per day over the trailing week (or since first cost). */
+  /** inference + other operating cost per day over the trailing week (or since first cost). */
+  // average daily inference cost over the last week.
   burnPerDayUsd(now: number): number {
     const from = now - 7 * DAY;
     const recent = this.llm.entries.filter((e) => e.ts >= from);
@@ -641,7 +666,7 @@ export class State {
     return [...this.inbox.values()].filter((i) => i.status === 'open' || i.status === 'answered');
   }
 
-  /** Items the agent has not yet seen: operator messages and operator replies since its last ack. */
+  /** items the agent has not yet seen: operator messages and operator replies since its last ack. */
   unseenForAgent(): InboxItem[] {
     const out: InboxItem[] = [];
     for (const it of this.inbox.values()) {
@@ -664,6 +689,7 @@ export class State {
     return [...this.inflows.values()].filter((i) => !i.resolved);
   }
 
+  // the headline numbers shown in every briefing, the cli and the dashboard.
   metrics(now: number): Metrics {
     const nav = this.navSeries.length ? this.navSeries[this.navSeries.length - 1].usd : this.liveNavUsd();
     const net = this.netContributedUsd();
@@ -684,6 +710,7 @@ export class State {
       for (const a of v.latest?.unpriced ?? []) unpriced.add(`${v.id}:${a}`);
     }
     const burn = this.burnPerDayUsd(now);
+    // runway only counts spending that comes out of capital, not the operator's subsidy.
     const capBurn = this.llm.entries.filter((e) => e.funding === 'capital' && e.ts >= now - 7 * DAY).reduce((s, e) => s + e.usd, 0) / 7;
     return {
       ts: now,
@@ -715,7 +742,9 @@ export class State {
 
 // ---------------------------------------------------------------- store
 
-/** A State kept in sync with an EventLog, tolerant of other processes appending to the same file. */
+/** a state kept in sync with an EventLog, tolerant of other processes appending to the same file. */
+// a state kept in sync with the log on disk. several processes (daemon, cli, strategies) may append,
+// so sync() tails the file from the last offset instead of trusting memory.
 export class StateStore {
   readonly log: EventLog;
   state = new State();
@@ -727,10 +756,11 @@ export class StateStore {
     this.sync();
   }
 
-  /** Apply any events appended since the last sync (by us or another process). Returns how many. */
+  /** apply any events appended since the last sync (by us or another process). returns how many. */
   sync(): number {
     const before = this.offset;
     const { events, offset } = this.log.readFrom(this.offset);
+    // the file shrank, so it was replaced. replay from the start.
     if (offset < before) {
       // file shrank (rotated / replaced): rebuild from scratch
       this.state = new State();

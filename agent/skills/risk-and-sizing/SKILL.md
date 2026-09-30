@@ -18,7 +18,7 @@ Maximise the expected *log* of wealth. Wealth multiplies, so a loss of x needs a
 
 ## The cost hurdle (always compute)
 
-`hurdle = fees + expected slippage + gas + your token cost for the decision`, as a percentage of the amount at risk. Trade only if expected gain per trade is comfortably above it (rule of thumb: 3x). At $1 of capital a single mainnet swap can be 30%+ of the position; on a cheap L2 it can be under 1%. Fixed costs set a minimum useful trade size; below it a strategy cannot work no matter how good the signal.
+`hurdle = fees + expected slippage + gas + your token cost for the decision`, as a percentage of the amount at risk. Trade only if expected gain per trade is comfortably above it (rule of thumb: 3x). At $1 of capital a single mainnet swap can be 30%+ of the position. On a cheap L2 it can be under 1%. Fixed costs set a minimum useful trade size. Below it a strategy cannot work no matter how good the signal.
 
 ## Drawdown precommitment
 
@@ -36,4 +36,4 @@ Decide limits *before* trading, when you are calm:
 
 ## Ruin arithmetic
 
-Risk of ruin grows quickly with bet size. If you repeatedly stake fraction `f` with win probability `p` at even odds, hitting a -50% drawdown becomes likely once `f` exceeds roughly `(2p-1)`. Small stakes with a real edge compound; large stakes with the same edge end at zero. When in doubt, halve the size.
+Risk of ruin grows quickly with bet size. If you repeatedly stake fraction `f` with win probability `p` at even odds, hitting a -50% drawdown becomes likely once `f` exceeds roughly `(2p-1)`. Small stakes with a real edge compound. Large stakes with the same edge end at zero. When in doubt, halve the size.

@@ -1,4 +1,4 @@
-// Human-readable formatting shared by the CLI and the agent's tools.
+// human-readable formatting shared by the CLI and the agent's tools.
 
 export const usd = (n: unknown): string => {
   if (typeof n !== 'number' || !Number.isFinite(n)) return 'n/a';
@@ -18,6 +18,7 @@ export const ago = (now: number, ts?: number): string => {
   return `${Math.round(s / 86400)}d ago`;
 };
 
+// // the text shown by `ouro status` and in the agent's status tool
 export function formatStatus(s: any): string {
   const m = s.metrics;
   const L: string[] = [];
@@ -27,7 +28,7 @@ export function formatStatus(s: any): string {
   L.push(`Drawdown now ${pct(m.drawdown)} (max ${pct(m.maxDrawdown)}) · burn ${usd(m.burnPerDayUsd)}/day`);
   if (s.budget) {
     const b = s.budget;
-    L.push(`Inference budget (${b.mode}): today ${usd(b.spentTodayUsd)} / ${usd(b.dailyLimitUsd)}; this episode ≤ ${usd(s.episodeBudgetUsd)}${b.exhausted ? ` — EXHAUSTED: ${b.reason}` : ''}`);
+    L.push(`Inference budget (${b.mode}): today ${usd(b.spentTodayUsd)} / ${usd(b.dailyLimitUsd)}; this episode ≤ ${usd(s.episodeBudgetUsd)}${b.exhausted ? ` (EXHAUSTED: ${b.reason})` : ''}`);
   }
   if (s.venues) {
     L.push(`Venues (${s.venues.length}):`);

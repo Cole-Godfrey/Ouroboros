@@ -1,3 +1,5 @@
+// tests for the metering proxy: key swapping, usage accounting, budget enforcement and response passthrough.
+
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -5,7 +7,7 @@ import type { AddressInfo } from 'node:net';
 import { LlmProxy, UsageSniffer } from '../src/core/llm-proxy.ts';
 import { Meter } from '../src/core/meter.ts';
 import { DEFAULT_CONFIG, deepMerge } from '../src/lib/config.ts';
-import { makeStore } from './helpers.ts';
+import { makeStore, PAID_LLM } from './helpers.ts';
 
 interface Seen { method: string; url: string; headers: http.IncomingHttpHeaders; body: any }
 
@@ -47,7 +49,7 @@ const anthropicStream = (usageIn = 25, usageOut = 15, cacheRead = 100, cacheWrit
 
 async function setup(over: any = {}) {
   const env = makeStore();
-  const cfg = deepMerge(structuredClone(DEFAULT_CONFIG), { budget: { sponsorDailyUsd: 5, perEpisodeUsd: 5 }, ...over });
+  const cfg = deepMerge(deepMerge(structuredClone(DEFAULT_CONFIG), PAID_LLM), { budget: { sponsorDailyUsd: 5, perEpisodeUsd: 5 }, ...over });
   const meter = new Meter({ store: env.store, config: () => cfg, limits: () => ({}), clock: env.clock.fn });
   let upUrl = '';
   const proxy = new LlmProxy({ meter, config: () => cfg, getSecret: (n) => (n === 'ANTHROPIC_API_KEY' ? 'sk-ant-real-key-0123456789' : n === 'OPENAI_API_KEY' ? 'sk-openai-real-key-0123456789' : undefined), upstream: () => upUrl });

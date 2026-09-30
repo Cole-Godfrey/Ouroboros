@@ -79,9 +79,9 @@ Development needs Node 22.22.2 or Node 24.15+ with npm 12.2+, which runs the Typ
 
 ## Status
 
-The typecheck and full test suite pass. The real Pi has been run end to end against a scripted model through the metering proxy, a full daemon lifecycle has been exercised, and a self-modification has passed the real gate, been promoted, restarted and entered probation in an installed layout.
+The typecheck and all 125 tests pass on macOS (Apple silicon, Node 24.15) and inside the Ubuntu 24.04 Lima VM (Node 22.23). The Mac installer, guest provisioning, firewall, real Pi boot check, scripted model episodes, reports and self-modification tests were exercised. A clean dependency install has no reported audit vulnerabilities. CI checks macOS and Linux on Node 22 and 24.
 
-Not yet verified are the Lima VM on a Mac, because the build ran on Linux, the firewall's runtime behaviour, which the installer self-tests and `ouro doctor` re-tests, any live venue or model API, and any trading strategy. Section 12 of the [system description](docs/SYSTEM.md) has details.
+Live model calls, funded trading and Intel Mac hardware have not been tested. The agent builds its own trading strategies. See section 12 of the [system description](docs/SYSTEM.md) for the validation scope.
 
 ## License
 

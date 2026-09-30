@@ -26,7 +26,7 @@ case "${1:-apply}" in
       [ -n "$h" ] || continue
       for p in 22 80 443; do blocked "$h" "$p" || leaks="$leaks $h:$p"; done
     done
-    if [ -z "$leaks" ]; then echo "firewall: isolation active (host and LAN unreachable, internet works)"; else echo "firewall: WARNING still reachable:$leaks" >&2; fi
+    if [ -z "$leaks" ]; then echo "firewall: isolation active (host and LAN unreachable, internet works)"; else echo "firewall: WARNING still reachable:$leaks" >&2; exit 1; fi
     ;;
   remove) remove ;;
   status) nft list table inet ouro_egress ;;

@@ -36,7 +36,7 @@ async function validateKey(provider: string, key: string): Promise<'ok' | 'rejec
   const spec = PROVIDERS[provider];
   if (!spec || process.env.OURO_OFFLINE) return 'unknown';
   try {
-    const url = provider === 'anthropic' ? `${spec.upstream}/v1/models` : provider === 'openrouter' ? `${spec.upstream}/api/v1/auth/key` : `${spec.upstream}${spec.basePath}/models`;
+    const url = provider === 'anthropic' ? `${spec.upstream}/v1/models` : provider === 'openrouter' ? `${spec.upstream}/api/v1/key` : `${spec.upstream}${spec.basePath}/models`;
     const headers: Record<string, string> = provider === 'anthropic' ? { 'x-api-key': key, 'anthropic-version': '2023-06-01' } : { authorization: `Bearer ${key}` };
     const res = await fetch(url, { headers, signal: AbortSignal.timeout(15_000) });
     if (res.status === 200) return 'ok';

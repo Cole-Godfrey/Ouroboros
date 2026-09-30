@@ -88,7 +88,7 @@ case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "add ~/.local/bin to your P
 
 cat <<MSG
 
-The VM is ready. It has no access to your files, and cannot reach your Mac or local network.
+The VM setup finished. Run ouro doctor --deep after initialization to verify this installation.
 
   Enter it:               limactl shell ${NAME}
   Run commands from Mac:  ~/.local/bin/ouro status   (a shortcut for: limactl shell ${NAME} -- ouro status)

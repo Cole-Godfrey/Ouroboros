@@ -128,8 +128,11 @@ export async function runDoctor(deep: boolean): Promise<number> {
     }
     for (const port of [22, 80, 443, 8080, 5900]) if ((await tcpProbe(addr, port)) === 'open') open.push(`${t}:${port}`);
   }
-  if (!targets.length) out(warn('could not determine the host/gateway address to test isolation'));
-  else out(open.length ? fail(`LAN/host isolation NOT active: reached ${open.join(', ')}. The VM can talk to your Mac or network (see vm/provision/firewall.sh).`) : ok('the VM cannot reach the host or LAN services (isolation active)'), open.length > 0);
+  // closed services alone cannot prove isolation. verify that the guest policy is loaded too.
+  const firewall = spawnSync('sudo', ['-n', 'nft', 'list', 'chain', 'inet', 'ouro_egress', 'output'], { encoding: 'utf8', timeout: 5000 });
+  const policyLoaded = firewall.status === 0 && /ip daddr @private4 reject/.test(firewall.stdout ?? '');
+  if (!policyLoaded) out(fail('guest egress policy is missing or unreadable: run sudo /opt/ouroboros/firewall/firewall.sh apply inside the VM'), true);
+  else out(open.length ? fail(`LAN/host isolation NOT active: reached ${open.join(', ')}. The VM can talk to your Mac or network (see vm/provision/firewall.sh).`) : ok('egress policy loaded and host/LAN service probes blocked'), open.length > 0);
 
   // notifications + budget sanity
   const notifyOn = !!cfg.notify.ntfy.topic || !!cfg.notify.telegram.chatId;

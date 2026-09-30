@@ -140,3 +140,46 @@ test('the daemon runs the genesis episode by itself, notifies the operator, mete
     await Promise.all([model.close(), ntfy.close(), rpc.close()]);
   }
 });
+
+test('the default free model completes an episode through the OpenRouter proxy with no capital', { timeout: 90_000 }, async () => {
+  const e = tmpEnv();
+  process.env.PI_OFFLINE = '1';
+  const requests: { url: string; body: any; authorization?: string }[] = [];
+  const model = await listen((req, body, res) => {
+    const input = JSON.parse(body);
+    requests.push({ url: req.url!, body: input, authorization: req.headers.authorization });
+    // exercise the real Pi's OpenAI-compatible streaming/tool-call decoder.
+    const chunk = (delta: unknown, finish_reason: string | null = null) => `data: ${JSON.stringify({
+      id: 'free-test', object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1000), model: input.model,
+      choices: [{ index: 0, delta, finish_reason }],
+      ...(finish_reason ? { usage: { prompt_tokens: 200, completion_tokens: 50, total_tokens: 250, cost: 0 } } : {}),
+    })}\n\n`;
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    res.end(chunk({ role: 'assistant', tool_calls: [{ index: 0, id: 'end-free', type: 'function', function: {
+      name: 'episode_end', arguments: JSON.stringify({ handoff: 'Free model ready without funding.', next_wake_minutes: 60 }),
+    } }] }) + chunk({}, 'tool_calls') + 'data: [DONE]\n\n');
+  });
+  fs.writeFileSync(e.paths.config, JSON.stringify({ llm: { proxyPort: 0, upstreams: { openrouter: model.url } }, dashboard: { port: 0 } }));
+  new Vault(e.paths).set('OPENROUTER_API_KEY', 'sk-or-v1-local-test-not-a-real-key');
+  const d = await Daemon.create({ env: e.env });
+  try {
+    await d.start();
+    const deadline = Date.now() + 60_000;
+    while (!d.store.state.episodes.some((ep) => ep.outcome) && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    const episode = d.store.state.episodes[0];
+    assert.equal(episode?.outcome, 'completed', episode?.error);
+    assert.equal(episode.handoff, 'Free model ready without funding.');
+    assert.ok(requests.length >= 1);
+    assert.equal(requests[0].url, '/api/v1/chat/completions');
+    assert.equal(requests[0].body.model, d.cfg().llm.model);
+    assert.equal(requests[0].authorization, 'Bearer sk-or-v1-local-test-not-a-real-key');
+    assert.ok(d.store.state.llm.entries.length >= 1);
+    assert.equal(d.store.state.llm.capitalUsd, 0);
+    assert.equal(d.store.state.metrics(Date.now()).navUsd, 0);
+  } finally {
+    await d.close();
+    await model.close();
+  }
+});

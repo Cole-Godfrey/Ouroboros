@@ -80,7 +80,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable ouroboros-firewall.service ouroboros.service >/dev/null 2>&1
 
 say "Egress firewall (blocks the VM from your Mac and local network)"
-if sudo /opt/ouroboros/firewall/firewall.sh apply; then :; else echo "WARNING: the firewall was not activated; run 'ouro doctor' and see vm/provision/firewall.sh" >&2; fi
+sudo /opt/ouroboros/firewall/firewall.sh apply || die "firewall self-test failed. See vm/provision/firewall.sh, then re-run provisioning"
 
 say "Done"
 cat <<MSG

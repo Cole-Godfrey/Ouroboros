@@ -1,0 +1,31 @@
+# Ouroboros egress policy: the VM may reach the public internet, not the host or local networks.
+# Loaded by /opt/ouroboros/firewall/firewall.sh, which verifies connectivity and rolls back if it breaks.
+
+table inet ouro_egress
+delete table inet ouro_egress
+
+table inet ouro_egress {
+  set private4 {
+    type ipv4_addr
+    flags interval
+    elements = { 10.0.0.0/8, 100.64.0.0/10, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16 }
+  }
+
+  chain output {
+    type filter hook output priority filter; policy accept;
+    oifname "lo" accept
+    ct state established,related accept
+    # name resolution (Lima redirects DNS to a host-side resolver; match on the ORIGINAL destination port)
+    ct original proto-dst 53 accept
+    # everything else aimed at the host (192.168.5.2), the gateway or any private network is refused
+    ip daddr @private4 reject
+  }
+
+  # containers the agent may run: same rule for traffic leaving through the real interface
+  chain forward {
+    type filter hook forward priority filter; policy accept;
+    ct state established,related accept
+    ct original proto-dst 53 accept
+    oifname { "eth*", "enp*", "ens*" } ip daddr @private4 reject
+  }
+}

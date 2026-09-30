@@ -1,0 +1,28 @@
+{
+  "name": "ouroboros",
+  "version": "0.1.0",
+  "description": "An autonomous agent that lives in its own VM and grows its own capital, forever.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "bin": {
+    "ouro": "./bin/ouro"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --test-concurrency=4 \"test/**/*.test.ts\"",
+    "check": "npm run typecheck && npm test",
+    "ouro": "./bin/ouro"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.99.1",
+    "viem": "2.57.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.0",
+    "typescript": "~5.9.3"
+  }
+}

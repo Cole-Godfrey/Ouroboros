@@ -1,0 +1,14 @@
+[Unit]
+Description=Ouroboros egress policy (block host and LAN access from the VM)
+After=network-online.target
+Wants=network-online.target
+Before=ouroboros.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/ouroboros/firewall/firewall.sh apply
+ExecStop=/opt/ouroboros/firewall/firewall.sh remove
+
+[Install]
+WantedBy=multi-user.target

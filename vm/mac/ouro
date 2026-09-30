@@ -1,0 +1,3 @@
+#!/bin/sh
+# Run the `ouro` CLI inside the Ouroboros VM from your Mac terminal.
+exec limactl shell @NAME@ -- ouro "$@"

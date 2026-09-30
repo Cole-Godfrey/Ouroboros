@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ouroboros</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff; --fg: #111418; --muted: #667085; --card: #f6f7f9; --line: #e3e6eb;
+    --good: #0a7d33; --bad: #c62828; --warn: #a15c00; --accent: #2457d6; --chip: #eaeef6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0e1116; --fg: #e6e8eb; --muted: #8b93a1; --card: #151a22; --line: #252c37;
+      --good: #3ddc84; --bad: #ff6b6b; --warn: #f0b04a; --accent: #6ea0ff; --chip: #1d2431; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 60px; }
+  h1 { font-size: 18px; margin: 0; letter-spacing: .3px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 28px 0 8px; }
+  header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .sub { color: var(--muted); font-size: 12px; }
+  .banner { margin: 12px 0; padding: 10px 12px; border-radius: 8px; background: var(--card); border: 1px solid var(--line); }
+  .banner.bad { border-color: var(--bad); } .banner.warn { border-color: var(--warn); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-top: 14px; }
+  .tile { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .tile .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .6px; }
+  .tile .v { font-size: 22px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .tile .s { color: var(--muted); font-size: 12px; }
+  .good { color: var(--good); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td.n, th.n { text-align: right; }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; background: var(--chip); font-size: 12px; }
+  .chip.critical, .chip.bad { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad); }
+  .chip.warn { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+  .chip.good { background: color-mix(in srgb, var(--good) 18%, transparent); color: var(--good); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .chartbar { display: flex; gap: 6px; margin-bottom: 6px; }
+  button { font: inherit; background: var(--chip); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 2px 10px; cursor: pointer; }
+  button.on { border-color: var(--accent); color: var(--accent); }
+  svg text { fill: var(--muted); font-size: 11px; }
+  .entry { padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .entry:last-child { border-bottom: 0; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  .wrap { overflow-wrap: anywhere; }
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 16px; }
+  @media (max-width: 520px) { .cols { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>&#9678; Ouroboros</h1>
+    <div class="sub" id="stamp">connecting…</div>
+  </header>
+  <div id="banners"></div>
+  <div class="tiles" id="tiles"></div>
+
+  <h2>Net asset value</h2>
+  <div class="card">
+    <div class="chartbar"><button id="b-nav" class="on">NAV (USD)</button><button id="b-idx">Growth index (deposits removed)</button></div>
+    <div id="chart"></div>
+  </div>
+
+  <div class="cols">
+    <div><h2>Venues</h2><div id="venues"></div></div>
+    <div><h2>Inference cost</h2><div id="costs"></div></div>
+  </div>
+
+  <h2>Episodes</h2><div id="episodes"></div>
+  <div class="cols">
+    <div><h2>Inbox (operator &#8596; agent)</h2><div id="inbox"></div></div>
+    <div><h2>Incidents</h2><div id="incidents"></div></div>
+  </div>
+  <div class="cols">
+    <div><h2>Journal</h2><div id="journal"></div></div>
+    <div><h2>Strategies &amp; harness</h2><div id="harness"></div></div>
+  </div>
+</main>
+<script>
+const token = new URLSearchParams(location.search).get('token') || '';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const usd = (n) => { if (n === undefined || n === null || isNaN(n)) return 'n/a'; const a = Math.abs(n); const d = a >= 1 ? 2 : a >= 0.01 ? 4 : 6; return (n < 0 ? '-' : '') + '$' + a.toFixed(d); };
+const pct = (x, d = 2) => (x === undefined || x === null || isNaN(x) ? 'n/a' : (x * 100).toFixed(d) + '%');
+const ago = (ts, now) => { const s = Math.max(0, Math.round(((now ?? Date.now()) - ts) / 1000)); if (s < 90) return s + 's ago'; if (s < 5400) return Math.round(s / 60) + 'm ago'; if (s < 172800) return Math.round(s / 3600) + 'h ago'; return Math.round(s / 86400) + 'd ago'; };
+const dur = (ms) => { const s = Math.round(ms / 1000); if (s < 90) return s + 's'; if (s < 5400) return Math.round(s / 60) + 'm'; return (s / 3600).toFixed(1) + 'h'; };
+const cls = (n) => (n > 0 ? 'good' : n < 0 ? 'bad' : '');
+let mode = 'nav';
+let data = null;
+
+function tile(k, v, s, c) { return `<div class="tile"><div class="k">${esc(k)}</div><div class="v ${c || ''}">${v}</div><div class="s">${s || ''}</div></div>`; }
+
+function chart(points) {
+  const el = $('chart');
+  if (!points || points.length < 2) { el.innerHTML = '<div class="sub">Not enough history yet: the first reconciliation points appear here.</div>'; return; }
+  const ys = points.map((p) => (mode === 'nav' ? p.usd : p.index));
+  const t0 = points[0].ts, t1 = points[points.length - 1].ts;
+  const min = Math.min(...ys), max = Math.max(...ys);
+  const pad = (max - min) * 0.1 || Math.abs(max) * 0.1 || 1;
+  const lo = Math.max(0, min - pad), hi = max + pad;
+  const W = 1000, H = 260, L = 56, R = 12, T = 10, B = 26;
+  const x = (t) => L + ((t - t0) / (t1 - t0 || 1)) * (W - L - R);
+  const y = (v) => T + (1 - (v - lo) / (hi - lo || 1)) * (H - T - B);
+  const d = points.map((p, i) => `${i ? 'L' : 'M'}${x(p.ts).toFixed(1)},${y(ys[i]).toFixed(1)}`).join('');
+  const area = d + `L${x(t1)},${H - B}L${x(t0)},${H - B}Z`;
+  const fmt = (v) => (mode === 'nav' ? usd(v) : v.toFixed(3));
+  const ticks = [lo, (lo + hi) / 2, hi].map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${fmt(v)}</text>`).join('');
+  const dt = (t) => new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${mode === 'nav' ? 'Net asset value' : 'Growth index'} over time">${ticks}
+    <path d="${area}" fill="var(--accent)" opacity=".10"/><path d="${d}" fill="none" stroke="var(--accent)" stroke-width="2"/>
+    <circle cx="${x(t1)}" cy="${y(ys[ys.length - 1])}" r="3.5" fill="var(--accent)"/>
+    <text x="${L}" y="${H - 6}">${esc(dt(t0))}</text><text x="${W - R}" y="${H - 6}" text-anchor="end">${esc(dt(t1))}</text></svg>`;
+}
+
+function render(d) {
+  data = d;
+  const m = d.metrics, now = d.now;
+  $('stamp').textContent = `updated ${new Date(now).toLocaleTimeString()} · release ${(d.release.running || 'unmanaged').slice(0, 10)} · up ${dur(d.uptimeSec * 1000)}`;
+
+  const banners = [];
+  if (d.control.halted) banners.push(['bad', '<b>Halted by operator.</b> Nothing runs until <span class="mono">ouro resume</span>.']);
+  else if (d.control.paused) banners.push(['warn', '<b>Paused by operator.</b> The agent is not being woken. Strategies keep running.']);
+  if (d.scheduler.blockedReason && !d.control.paused) banners.push(['warn', `<b>Agent cannot start an episode:</b> ${esc(d.scheduler.blockedReason)}`]);
+  if (!d.charter.ok) banners.push(['bad', `<b>Charter check failed:</b> ${esc(d.charter.message)}`]);
+  if (d.charter.state === 'unsealed') banners.push(['warn', 'Charter is not sealed yet (<span class="mono">ouro charter seal</span>).']);
+  if (d.release.promotion && ['pending', 'probation'].includes(d.release.promotion.state)) banners.push(['warn', `A self-modification is on probation (release ${esc(d.release.promotion.sha.slice(0, 10))}); it rolls back automatically if it misbehaves.`]);
+  if (d.runner.running) banners.push(['', `Episode <span class="mono">${esc(d.runner.current.id)}</span> running for ${dur(now - d.runner.current.startedAt)}.`]);
+  $('banners').innerHTML = banners.map(([c, h]) => `<div class="banner ${c}">${h}</div>`).join('');
+
+  const g = m.growth;
+  const gd = g.d7 ?? g.all;
+  $('tiles').innerHTML = [
+    tile('Net asset value', usd(m.navUsd), `contributed ${usd(m.netContributedUsd)}`),
+    tile('Profit / loss', (m.pnlUsd >= 0 ? '+' : '') + usd(m.pnlUsd), m.pnlPct === null ? '' : pct(m.pnlPct), cls(m.pnlUsd)),
+    tile('After operator subsidy', (m.pnlAfterSubsidyUsd >= 0 ? '+' : '') + usd(m.pnlAfterSubsidyUsd), `subsidy ${usd(m.subsidyUsd)}`, cls(m.pnlAfterSubsidyUsd)),
+    tile('Growth per day', gd === undefined ? 'n/a' : (gd >= 0 ? '+' : '') + pct(gd), m.doublingDays ? `doubling ≈ ${m.doublingDays.toFixed(1)} days` : '7-day window when available', cls(gd)),
+    tile('Drawdown', pct(m.drawdown), `max ${pct(m.maxDrawdown)}`, m.drawdown > 0.2 ? 'bad' : ''),
+    tile('Inference today', usd(d.budget.spentTodayUsd), `of ${usd(d.budget.dailyLimitUsd)} · ${esc(d.budget.mode)}-funded`, d.budget.exhausted ? 'bad' : ''),
+    tile('Inbox / incidents', `${d.inbox.open} / ${d.incidents}`, `${d.inbox.unseenForAgent} unseen by agent`, d.incidents ? 'warn' : ''),
+    tile('Next wake', d.scheduler.nextHeartbeatAt ? dur(d.scheduler.nextHeartbeatAt - now) : 'n/a', `${d.scheduler.pending.length} pending trigger(s)`),
+  ].join('');
+
+  chart(d.nav);
+
+  $('venues').innerHTML = d.venuesDetail.length ? `<table><tr><th>Venue</th><th class="n">Value</th><th>Holdings</th></tr>${d.venuesDetail.map((v) => `<tr><td>${esc(v.id)}${v.strategy ? ` <span class="chip">${esc(v.strategy)}</span>` : ''}${v.error ? ` <span class="chip bad" title="${esc(v.error.message)}">error</span>` : ''}</td><td class="n">${v.latest ? usd(v.latest.totalUsd) : '—'}<div class="sub">${v.latest ? ago(v.latest.ts, now) : 'never'}</div></td><td class="wrap">${(v.latest?.holdings || []).filter((h) => h.valueUsd > 0).sort((a, b) => b.valueUsd - a.valueUsd).slice(0, 5).map((h) => `${esc(h.asset)} ${usd(h.valueUsd)}`).join('<br>')}</td></tr>`).join('')}</table>` : '<div class="sub">No venues registered. The agent registers wallets and accounts as they are funded.</div>';
+
+  const l = d.llm;
+  $('costs').innerHTML = `<div class="card"><div>Lifetime: <b>${usd(l.sponsorUsd)}</b> sponsor-funded · <b>${usd(l.capitalUsd)}</b> capital-funded</div>
+    <div class="sub">Tokens: ${(l.tokens.input / 1e3).toFixed(0)}k in · ${(l.tokens.output / 1e3).toFixed(0)}k out · ${(l.tokens.cacheRead / 1e3).toFixed(0)}k cache-read</div>
+    <table style="margin-top:8px"><tr><th>Model</th><th class="n">Calls</th><th class="n">Cost</th></tr>${Object.entries(l.byModel).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="n">${v.calls}</td><td class="n">${usd(v.usd)}</td></tr>`).join('') || '<tr><td colspan="3" class="sub">no calls yet</td></tr>'}</table>
+    <div class="sub" style="margin-top:6px">Other costs (capital): ${Object.entries(d.expenses.byCategory).map(([k, v]) => `${esc(k)} ${usd(v.capitalUsd)}`).join(' · ') || 'none recorded'}</div></div>`;
+
+  $('episodes').innerHTML = d.episodes.length ? `<table><tr><th>When</th><th>Trigger</th><th>Outcome</th><th class="n">Cost</th><th class="n">Turns</th><th>Handoff</th></tr>${d.episodes.slice(0, 12).map((e) => `<tr><td>${ago(e.startedAt, now)}</td><td>${esc(e.reason)}</td><td><span class="chip ${e.outcome === 'completed' ? 'good' : ['error', 'stalled', 'timeout'].includes(e.outcome) ? 'bad' : 'warn'}">${esc(e.outcome || 'running')}</span></td><td class="n">${usd(e.costUsd)}</td><td class="n">${e.turns ?? ''}</td><td class="wrap">${esc((e.handoff || e.error || '').slice(0, 220))}</td></tr>`).join('')}</table>` : '<div class="sub">No episodes yet.</div>';
+
+  $('inbox').innerHTML = d.inboxItems.length ? d.inboxItems.slice(0, 10).map((i) => `<div class="entry"><span class="chip ${i.status === 'open' ? 'warn' : i.status === 'answered' ? 'good' : ''}">${esc(i.status)}</span> <b>#${esc(i.id)}</b> ${esc(i.title)} <span class="sub">${esc(i.from)} · ${ago(i.ts, now)}</span>${i.body && i.from !== 'operator' ? `<div class="sub wrap">${esc(i.body.slice(0, 260))}</div>` : ''}${i.replies.slice(-2).map((r) => `<div class="sub wrap">↳ ${esc(r.by)}: ${esc(r.text.slice(0, 200))}</div>`).join('')}</div>`).join('') : '<div class="sub">Empty. Anything the agent needs from you shows up here and on your phone.</div>';
+
+  $('incidents').innerHTML = d.incidentsRecent.length ? d.incidentsRecent.slice(0, 8).map((i) => `<div class="entry"><span class="chip ${i.severity}">${esc(i.severity)}</span> <b>${esc(i.kind)}</b> ${i.resolvedAt ? '<span class="chip good">resolved</span>' : ''} <span class="sub">${ago(i.ts, now)}</span><div class="sub wrap">${esc(i.message.slice(0, 280))}</div></div>`).join('') : '<div class="sub">None.</div>';
+
+  $('journal').innerHTML = d.journal.length ? d.journal.slice(0, 10).map((j) => `<div class="entry"><span class="chip">${esc(j.kind)}</span> <span class="sub">${ago(j.ts, now)}</span><div class="wrap">${esc(j.text.slice(0, 320))}</div></div>`).join('') : '<div class="sub">The agent writes its decisions and lessons here.</div>';
+
+  const strat = d.strategies.length ? `<table><tr><th>Strategy</th><th>Status</th><th class="n">Restarts</th></tr>${d.strategies.map((s) => `<tr><td>${esc(s.name)}</td><td><span class="chip ${s.status === 'running' ? 'good' : s.status === 'failed' ? 'bad' : ''}">${esc(s.status)}</span></td><td class="n">${s.restarts}</td></tr>`).join('')}</table>` : '<div class="sub">No strategies running. Code the agent writes to trade between episodes appears here.</div>';
+  const sm = d.selfmod;
+  $('harness').innerHTML = strat + `<div class="card" style="margin-top:8px"><div>Release <span class="mono">${esc((sm.current || 'n/a').slice(0, 10))}</span> · last known good <span class="mono">${esc((sm.lkg || 'n/a').slice(0, 10))}</span>${sm.bad.length ? ` · rolled back: ${sm.bad.length}` : ''}</div>${sm.history.slice(0, 5).map((h) => `<div class="sub">${ago(h.ts, now)} · ${esc(h.kind)}${h.sha ? ' ' + esc(h.sha.slice(0, 8)) : ''} ${esc((h.message || h.reason || '').slice(0, 120))}</div>`).join('')}</div>`;
+}
+
+async function tick() {
+  try {
+    const r = await fetch('/v1/dashboard?token=' + encodeURIComponent(token), { cache: 'no-store' });
+    if (r.status === 401) { $('stamp').textContent = 'missing or wrong token: open the URL printed by `ouro dashboard`'; return; }
+    render(await r.json());
+  } catch (e) { $('stamp').textContent = 'disconnected: ' + e; }
+}
+$('b-nav').onclick = () => { mode = 'nav'; $('b-nav').className = 'on'; $('b-idx').className = ''; if (data) chart(data.nav); };
+$('b-idx').onclick = () => { mode = 'idx'; $('b-idx').className = 'on'; $('b-nav').className = ''; if (data) chart(data.nav); };
+tick(); setInterval(tick, 10000);
+</script>
+</body>
+</html>

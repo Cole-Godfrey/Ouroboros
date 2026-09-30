@@ -1,0 +1,79 @@
+# Ouroboros VM for Lima (>= 2.0) on macOS, using Apple's Virtualization.framework.
+#
+#   limactl create --name ouroboros vm/lima/ouroboros.yaml && limactl start ouroboros
+#
+# (vm/mac/setup.sh does this for you, then installs the software inside.)
+#
+# Isolation choices, on purpose:
+#   * NO host mounts: nothing on your Mac is visible inside the VM.
+#   * No automatic port forwarding except the read-only dashboard (7777, bound to your Mac's localhost).
+#   * No host proxy or SSH-agent forwarding into the VM.
+#   * The guest firewall (vm/provision/firewall.sh) additionally blocks the VM from reaching your Mac
+#     and your local network; it can reach only the public internet.
+
+minimumLimaVersion: 2.0.0
+
+base:
+  - template:_images/ubuntu-24.04
+
+vmType: vz
+
+# Size it for a busy agent: it builds software, runs strategies and keeps market data.
+cpus: 4
+memory: 8GiB
+disk: 80GiB
+
+mounts: []
+
+containerd:
+  system: false
+  user: false
+
+user:
+  name: ouro
+  home: /home/ouro
+  shell: /bin/bash
+  passwordlessSudo: true   # the agent installs its own tools; the VM boundary is what contains it
+
+ssh:
+  forwardAgent: false
+  loadDotSSHPubKeys: false
+
+propagateProxyEnv: false
+
+hostResolver:
+  enabled: true
+
+# First match wins: forward only the dashboard, ignore everything else.
+portForwards:
+  - guestPort: 7777
+    hostIP: "127.0.0.1"
+    hostPort: 7777
+  - guestIPMustBeZero: false
+    guestIP: "0.0.0.0"
+    guestPortRange: [1, 65535]
+    proto: any
+    ignore: true
+  - guestIP: "127.0.0.1"
+    guestPortRange: [1, 65535]
+    proto: any
+    ignore: true
+
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -eux -o pipefail
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update
+      apt-get install -y --no-install-recommends ca-certificates curl git build-essential python3 python3-pip python3-venv jq sqlite3 unzip xz-utils nftables tmux htop ripgrep dnsutils netcat-openbsd less vim
+      # the agent's own sub-agents and scripts get the same time as everything else
+      timedatectl set-ntp true || true
+
+message: |
+  The Ouroboros VM is up.
+
+    Enter it:            limactl shell ouroboros
+    Install the agent:   ./vm/mac/setup.sh (already done if you used it)
+    First-time setup:    ouro init
+    Dashboard (Mac):     http://localhost:7777 (URL with token: `ouro dashboard`)

@@ -1,0 +1,25 @@
+[Unit]
+Description=Ouroboros autonomous agent
+After=network-online.target ouroboros-firewall.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ouro
+Group=ouro
+WorkingDirectory=/home/ouro
+Environment=OURO_HOME=/home/ouro/.ouroboros
+Environment=OURO_CODE=/home/ouro/ouroboros
+Environment=NODE_OPTIONS=--disable-warning=ExperimentalWarning
+Environment=PI_TELEMETRY=0
+Environment=PI_SKIP_VERSION_CHECK=1
+ExecStart=/opt/ouroboros/boot/run.sh
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+# stopping the service stops everything the agent started (Pi, strategies); the daemon re-adopts what should run
+KillMode=control-group
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

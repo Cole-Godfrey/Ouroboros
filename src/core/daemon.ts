@@ -34,6 +34,7 @@ import { ProcMan } from './procman.ts';
 import { Reconciler } from './reconciler.ts';
 import { EpisodeRunner } from './runner.ts';
 import { Scheduler } from './scheduler.ts';
+import { DailyReports } from './report.ts';
 import { SelfMod } from './selfmod.ts';
 import { StateStore } from './state.ts';
 import { Vault } from './vault.ts';
@@ -69,6 +70,7 @@ export class Daemon {
   readonly selfmod: SelfMod;
   readonly runner: EpisodeRunner;
   readonly scheduler: Scheduler;
+  readonly reports: DailyReports;
   readonly notifyService: NotifyService;
   proxy?: LlmProxy;
 
@@ -134,6 +136,7 @@ export class Daemon {
       onLlmProblem: (kind, message) => this.alert(`llm-${kind}`, kind === 'billing' ? 'The model provider reports a billing problem' : 'The model provider rejected the API key', `${message.slice(0, 500)}\n\nThe agent cannot think until this is fixed. Check the key/credits at the provider, then \`ouro secret set ${this.cfg().llm.provider.toUpperCase()}_API_KEY\` if the key changed.`),
     });
     this.scheduler = new Scheduler({ store: this.store, config: () => this.cfg(), precheck: () => this.runner.precheck(), clock: this.clock, log: this.log.child('scheduler') });
+    this.reports = new DailyReports(this.paths, this.store, this.clock);
     this.notifyService = new NotifyService(this.store, this.inbox, () => this.currentNotifier(), this.log.child('notify'));
   }
 
@@ -272,6 +275,12 @@ export class Daemon {
       st.append('genesis', { version: VERSION, charterSha: charterSha(this.paths.root) ?? '', hostname: (await import('node:os')).hostname() });
       this.seedHome();
     }
+    // record the configured model on first boot and after offline edits for historical reports.
+    const previousModel = st.log.readAll().filter((ev) => ev.type === 'model.set').at(-1)?.data;
+    const { provider, model } = this.cfg().llm;
+    if (previousModel?.provider !== provider || previousModel?.model !== model) {
+      st.append('model.set', { provider, model, free: isFreeModel(model), by: 'system' });
+    }
     // wallet + default venue
     if (!this.selftest) {
       try {
@@ -322,6 +331,8 @@ export class Daemon {
 
   async start(): Promise<void> {
     const cfg = this.cfg();
+    // subscribe before any loops begin so operator messages and incidents wake the agent.
+    this.scheduler.attach();
     if (cfg.llm.proxy && !this.selftest) {
       this.proxy = new LlmProxy({ meter: this.meter, config: () => this.cfg(), getSecret: (n) => { try { return this.vault.get(n); } catch { return undefined; } }, log: this.log.child('llm-proxy'), upstream: (p) => this.cfg().llm.upstreams?.[p] ?? PROVIDERS[p]!.upstream });
       try {
@@ -337,6 +348,7 @@ export class Daemon {
     this.heartbeat();
     this.every(5_000, () => this.heartbeat());
     if (this.selftest) return;
+    this.reports.start((e) => this.log.error('daily report failed', e));
     this.every(5_000, () => void this.mainTick());
     this.every(Math.max(60_000, cfg.reconcile.intervalSec * 1000), () => void this.reconcile());
     setTimeout(() => void this.reconcile(), 15_000).unref();
@@ -392,6 +404,16 @@ export class Daemon {
           res.end(html());
         } catch {
           res.writeHead(500).end('dashboard missing');
+        }
+        return;
+      }
+      if (req.method === 'GET' && url.pathname === '/ouroboros.png') {
+        try {
+          const artwork = fs.readFileSync(path.join(this.paths.root, 'docs', 'img', 'ouroboros.png'));
+          res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'public, max-age=3600', 'x-content-type-options': 'nosniff' });
+          res.end(artwork);
+        } catch {
+          res.writeHead(404).end('artwork missing');
         }
         return;
       }
@@ -502,6 +524,8 @@ export class Daemon {
   /** stop loops and listeners without exiting the process (tests, smoke check). */
   async close(): Promise<void> {
     this.stopping = true;
+    this.scheduler.close();
+    this.reports.close();
     for (const t of this.timers) clearInterval(t);
     this.timers = [];
     if (this.runner.running()) {

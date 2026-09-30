@@ -11,6 +11,7 @@ import { formatStatus, ago, pct, usd } from '../core/format.ts';
 import { Inbox } from '../core/inbox.ts';
 import { isFreeModel, modelId, providerEnv, providerKeyEnv } from '../core/llm.ts';
 import { SelfMod } from '../core/selfmod.ts';
+import { DailyReports, type StatusReport } from '../core/report.ts';
 import { StateStore } from '../core/state.ts';
 import { TelegramChannel } from '../core/notify.ts';
 import { Vault, SECRET_NAME_RE } from '../core/vault.ts';
@@ -49,6 +50,7 @@ const HELP = `${bold('ouro')}: the Ouroboros operator CLI
 
 ${bold('Everyday')}
   status                       NAV, P&L, growth, budget, venues, strategies
+  report [--short|--json] [--now]  latest daily UTC report, or an interim update
   inbox [--all]                what the agent needs from you (and the conversation)
   reply <id> <text...>         answer an inbox item
   say <text...>                message the agent (wakes it)
@@ -95,6 +97,19 @@ async function status() {
       say(formatStatus({ now, metrics: store.state.metrics(now), inbox: { open: store.state.openInbox().length, unseenForAgent: store.state.unseenForAgent().length }, incidents: store.state.openIncidents().length, control: store.state.control, charter: checkCharter(paths, paths.root), venues: store.state.liveVenues().map((v) => ({ id: v.id, strategy: v.strategy, totalUsd: v.latest?.totalUsd, at: v.latest?.ts })) }));
     },
   );
+}
+
+// the archived report remains available even when the daemon is stopped.
+async function report(flags: Record<string, string | true>) {
+  const result = await viaApi(
+    () => apiCall<StatusReport>('GET', `/v1/report${flags.now ? '?now=1' : ''}`),
+    () => {
+      const { store, vault } = local();
+      vault.loadRedactor();
+      return new DailyReports(paths, store).latest(!!flags.now);
+    },
+  );
+  say(flags.json ? JSON.stringify(result, null, 2) : flags.short ? result.short : result.text);
 }
 
 // render one inbox item with its steps, the secrets to set and the conversation so far
@@ -505,7 +520,7 @@ async function poke(pos: string[]) {
 
 // dispatch on the first word. the agent and the operator use the same commands.
 async function main() {
-  const { pos, flags } = parseArgs(process.argv.slice(2), ['yes', 'all', 'deep', 'f', 'stdin', 'key-stdin']);
+  const { pos, flags } = parseArgs(process.argv.slice(2), ['yes', 'all', 'deep', 'f', 'stdin', 'key-stdin', 'short', 'json', 'now']);
   const [cmd, ...rest] = pos;
   switch (cmd) {
     case undefined:
@@ -516,6 +531,8 @@ async function main() {
       return runInit(flags);
     case 'status':
       return status();
+    case 'report':
+      return report(flags);
     case 'doctor':
       process.exit(await runDoctor(!!flags.deep));
       return;

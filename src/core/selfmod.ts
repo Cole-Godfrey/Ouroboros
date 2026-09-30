@@ -219,7 +219,10 @@ export class SelfMod {
         const r = await exec('npm', ['ci', '--no-audit', '--no-fund'], { cwd: tmp, timeoutMs: 15 * 60_000 });
         if (r.code !== 0) throw new Error(`npm ci failed: ${tail(r.out, 1500)}`);
       } else {
-        execFileSync('cp', ['-a', '--reflink=auto', fs.realpathSync(baseModules), path.join(tmp, 'node_modules')], { stdio: 'pipe', timeout: 5 * 60_000 });
+        // node's copy supports both macOS and Linux and preserves relative package-bin links.
+        fs.cpSync(fs.realpathSync(baseModules), path.join(tmp, 'node_modules'), {
+          recursive: true, verbatimSymlinks: true, mode: fs.constants.COPYFILE_FICLONE,
+        });
       }
       writeJson(path.join(tmp, '.ouro-release.json'), { sha, exportedAt: this.clock() });
       fs.renameSync(tmp, dir);
@@ -471,14 +474,15 @@ export class SelfMod {
   prune(): void {
     try {
       const keep = this.d.config().selfmod.keepReleases;
-      const protectedDirs = new Set([this.linkTarget(this.d.paths.current), this.linkTarget(this.d.paths.lkg), this.d.paths.root].filter(Boolean) as string[]);
+      // macOS aliases /var to /private/var. compare canonical paths before deleting any release.
+      const protectedDirs = new Set([this.linkTarget(this.d.paths.current), this.linkTarget(this.d.paths.lkg), fs.realpathSync(this.d.paths.root)].filter(Boolean) as string[]);
       const dirs = fs
         .readdirSync(this.d.paths.releases)
         .filter((n) => !n.startsWith('.'))
         .map((n) => path.join(this.d.paths.releases, n))
         .filter((p) => fileExists(path.join(p, '.ouro-release.json')))
         .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
-      for (const d of dirs.slice(keep)) if (!protectedDirs.has(d)) rmrf(d);
+      for (const d of dirs.slice(keep)) if (!protectedDirs.has(fs.realpathSync(d))) rmrf(d);
     } catch {
       /* best effort */
     }

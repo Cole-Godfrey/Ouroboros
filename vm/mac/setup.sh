@@ -21,6 +21,9 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# the name is also embedded in the installed shell shortcut
+[[ "$NAME" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]] || { echo "invalid VM name: $NAME" >&2; exit 2; }
+
 say() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 die() { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
@@ -40,14 +43,14 @@ ver="$(limactl --version | awk '{print $NF}' | sed 's/^v//')"
 say "The VM (${NAME})"
 if limactl list -q 2>/dev/null | grep -qx "$NAME"; then
   echo "VM ${NAME} already exists"
-  limactl list "$NAME" | tail -n +2 | grep -q Running || limactl start "$NAME"
+  [ "$(limactl list "$NAME" --format '{{.Status}}')" = Running ] || limactl start --tty=false "$NAME"
 else
   args=(--name "$NAME" --tty=false)
   [ -n "$CPUS" ] && args+=(--cpus "$CPUS")
   [ -n "$MEMORY" ] && args+=(--memory "${MEMORY%GiB}")
   [ -n "$DISK" ] && args+=(--disk "${DISK%GiB}")
   limactl create "${args[@]}" "$REPO_DIR/vm/lima/ouroboros.yaml"
-  limactl start "$NAME"
+  limactl start --tty=false "$NAME"
 fi
 
 say "Copying the repository into the VM"
@@ -57,7 +60,9 @@ fi
 if limactl shell "$NAME" test -d /home/ouro/ouroboros/.git 2>/dev/null; then
   echo "repository already present in the VM (not overwritten: the agent may have modified it)"
 else
-  bundle="$(mktemp -d)/ouroboros.bundle"
+  bundle_dir="$(mktemp -d)"
+  trap 'rm -rf "$bundle_dir"' EXIT
+  bundle="$bundle_dir/ouroboros.bundle"
   git -C "$REPO_DIR" bundle create "$bundle" --all >/dev/null 2>&1
   limactl copy "$bundle" "$NAME:/tmp/ouroboros.bundle"
   limactl shell "$NAME" bash -lc 'set -e; rm -rf ~/ouroboros; git clone -q /tmp/ouroboros.bundle ~/ouroboros; cd ~/ouroboros; git remote remove origin; git checkout -q -B main; rm -f /tmp/ouroboros.bundle'
@@ -67,7 +72,7 @@ say "Installing inside the VM"
 limactl shell "$NAME" bash -lc '~/ouroboros/vm/provision/provision.sh'
 
 say "Start at login"
-if ! limactl autostart "$NAME" 2>/dev/null; then limactl start-at-login "$NAME" 2>/dev/null || echo "note: could not enable autostart; start the VM with: limactl start $NAME"; fi
+if ! limactl autostart enable "$NAME" 2>/dev/null; then limactl start-at-login "$NAME" 2>/dev/null || echo "note: could not enable autostart; start the VM with: limactl start $NAME"; fi
 
 if [ "$KEEP_AWAKE" -eq 1 ]; then
   say "Keep-awake"
@@ -92,5 +97,5 @@ MSG
 
 if [ "$RUN_INIT" -eq 1 ]; then
   say "First-time setup (ouro init)"
-  exec limactl shell "$NAME" -- ouro init
+  limactl shell "$NAME" -- ouro init
 fi

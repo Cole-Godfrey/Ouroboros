@@ -6,8 +6,10 @@
   "private": true,
   "license": "MIT",
   "engines": {
-    "node": ">=22.18.0"
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0",
+    "npm": ">=12.2.0"
   },
+  "packageManager": "npm@12.2.0",
   "bin": {
     "ouro": "./bin/ouro"
   },
@@ -24,5 +26,8 @@
   "devDependencies": {
     "@types/node": "^22.20.0",
     "typescript": "~5.9.3"
+  },
+  "overrides": {
+    "brace-expansion": "5.0.12"
   }
 }

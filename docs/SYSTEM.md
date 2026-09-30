@@ -1,6 +1,6 @@
 # Ouroboros: system description
 
-![Ouroboros](img/ouroboros.svg)
+![Ouroboros](img/ouroboros.png)
 
 Ouroboros is an autonomous agent that lives in its own Linux VM on your Mac, holds a small pot of capital that starts at one dollar, and works continuously to grow it. It may trade any market it can lawfully reach, buy what it needs out of that capital, and rewrite its own harness as it learns, for as long as it runs. This document describes the whole system. The step-by-step runbook is in [OPERATOR_GUIDE.md](OPERATOR_GUIDE.md).
 
@@ -140,6 +140,7 @@ Everything the agent needs arrives as one inbox item with the reason, numbered s
 | Command | What it does |
 | --- | --- |
 | `ouro status` | NAV, profit and loss, growth rate, budget, venues, strategies |
+| `ouro report` | Latest daily report, generated at 00:00 UTC. Use `--short` for X or `--now` for an interim update |
 | `ouro inbox` | What the agent needs from you and the conversation so far |
 | `ouro model` | The model the agent thinks with, and whether it is free |
 | `ouro pause`, `resume`, `halt` | Stop waking the agent, or stop everything including strategies |
@@ -149,6 +150,8 @@ Everything the agent needs arrives as one inbox item with the reason, numbered s
 | `ouro ledger export --kind trades` | Trades, expenses, income, flows, NAV or LLM usage as CSV |
 | `ouro wallet export` | Print the wallet key once, for your own backup |
 | `ouro chat` | Talk to the agent directly in an interactive Pi session |
+
+Daily reports are generated at 00:00 UTC by replaying the audit log to the midnight cutoff. They include recorded status, NAV, lifetime profit and loss, capital flows, costs, trades, episodes and new developments. They use no model calls and do not change agent scheduling or permissions. The archives live under `~/.ouroboros/reports/` and are readable through `ouro report` even when the daemon is down. After downtime, the latest completed day is reconstructed. `ouro report --short` returns a compact post, `--now` returns an interim update, and `--json` includes timestamps. Publishing remains the operator's action.
 
 ## 10. Setup
 
@@ -173,7 +176,7 @@ The repository is the harness. It holds about 11,000 lines of TypeScript that No
 
 In the VM, `~/ouroboros` holds the agent's editable working copy. `~/.ouroboros` holds the audit log (`events.jsonl`, the single source of truth), the immutable releases with the `current` and `lkg` symlinks, the agent's notes, strategies, venue adapters and data, the encrypted vault, the config, and the socket, heartbeat and logs. `/etc/ouroboros` holds the root-owned limits, Charter seal and firewall rules, and `/opt/ouroboros/boot` holds the boot supervisor and its known-good copy.
 
-To develop, run `npm ci` and then `npm run check`, which runs the typecheck and every test in about a minute with no network and no tokens. Node 22.18 or newer is required.
+To develop, run `npm ci` and then `npm run check`, which runs the typecheck and every test in about a minute with no network and no tokens. Node 22.22.2 or Node 24.15+ with npm 12.2+ is required.
 
 Configuration lives in `~/.ouroboros/config.json` and is merged over the defaults. Budget limits also exist in `/etc/ouroboros/limits.json` and in the audit log, and the lowest value wins.
 

@@ -24,8 +24,8 @@ if ! command -v git >/dev/null || ! command -v nft >/dev/null || ! command -v cu
   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl git build-essential python3 python3-pip python3-venv jq sqlite3 unzip xz-utils nftables tmux htop ripgrep dnsutils netcat-openbsd less vim
 fi
 
-say "Node.js ${NODE_MAJOR}.x (needs 22.18+ for native TypeScript)"
-node_ok() { command -v node >/dev/null && node -e 'const [a,b]=process.versions.node.split(".").map(Number); process.exit(a>22||(a===22&&b>=18)?0:1)'; }
+say "Node.js ${NODE_MAJOR}.x (22.22.2+ or 24.15+, with npm 12)"
+node_ok() { command -v node >/dev/null && node -e 'const [a,b,c]=process.versions.node.split(".").map(Number); process.exit((a===22&&(b>22||(b===22&&c>=2)))||(a===24&&b>=15)||a>=26?0:1)'; }
 if ! node_ok; then
   case "$(uname -m)" in aarch64|arm64) narch=arm64 ;; x86_64) narch=x64 ;; *) die "unsupported CPU $(uname -m)" ;; esac
   base="https://nodejs.org/dist/latest-v${NODE_MAJOR}.x"
@@ -43,6 +43,10 @@ if ! node_ok; then
   rm -rf "$tmp"
 fi
 node_ok || die "Node is still too old"
+# npm 12 honors the lockfile override instead of Pi's older published shrinkwrap.
+if ! command -v npm >/dev/null || [ "$(npm --version)" != 12.2.0 ]; then
+  sudo /usr/local/bin/npm install --global npm@12.2.0 --no-audit --no-fund
+fi
 echo "node $(node -v), npm $(npm -v)"
 
 say "Harness repository and dependencies"

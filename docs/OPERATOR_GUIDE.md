@@ -14,18 +14,17 @@ You need a Mac on macOS 13 or newer with [Homebrew](https://brew.sh), about 8 Gi
 
 ## Install
 
-Clone the repository on your Mac, check out the branch and run the installer. It is safe to run again.
+Clone the repository on your Mac and run the installer. It is safe to run again.
 
 ```sh
 git clone https://github.com/Cole-Godfrey/Ouroboros
 cd Ouroboros
-git checkout claude/stoic-hamilton-k9fz00
 ./vm/mac/setup.sh --keep-awake
 ```
 
 The installer installs Lima with Homebrew and creates an Ubuntu 24.04 VM named `ouroboros` with 4 CPUs, 8 GiB of RAM, 80 GiB of disk and no shared folders. It copies only the committed repository into the VM and runs `vm/provision/provision.sh` inside it, which installs Node 22, Pi and the dependencies, the egress firewall, the boot supervisor and the systemd services. It then turns on start-at-login, puts an `ouro` shortcut in `~/.local/bin`, and starts `ouro init`. The options are `--name`, `--cpus`, `--memory`, `--disk`, `--no-init` and `--keep-awake`. Make sure `~/.local/bin` is on your `PATH`, because the shortcut runs `limactl shell ouroboros -- ouro ...`.
 
-The `--keep-awake` option installs a LaunchAgent that runs `caffeinate`. A sleeping Mac freezes the VM and the agent with it, and a closed laptop lid still sleeps the Mac unless it is on power with an external display. If `limactl create` rejects `vm/lima/ouroboros.yaml`, note that the file was written from the Lima 2.x documentation and has never booted on a Mac, so the fix is usually a line or two. Nothing else in the repository depends on it.
+The `--keep-awake` option installs a LaunchAgent that runs `caffeinate`. A sleeping Mac freezes the VM and the agent with it, and a closed laptop lid still sleeps the Mac unless it is on power with an external display. The VM configuration has been boot-tested on Apple silicon with Lima 2.2. Intel support is configured but has not been tested on hardware.
 
 ## First-time setup
 
@@ -60,6 +59,16 @@ When your phone buzzes, read the inbox item and act or reply. Weekly, look at `o
 `ouro pause` stops waking the agent while its strategies keep running, and `ouro resume` undoes it. `ouro halt` stops the agent and all strategies, and `ouro kill` also stops the service. `ouro poke "look at X"` wakes the agent now and `ouro say <text>` sends it a message. `ouro strategy list`, `logs NAME`, `stop NAME` and `start NAME` manage the programs it runs between episodes. `ouro venue list` shows where it holds value, and `ouro venue value <id> <usd>` sets a value for a place with no adapter yet. `ouro chat` opens an interactive Pi session with the agent's tools, and `ouro notify test` sends a test notification.
 
 Operator-owned limits live in `/etc/ouroboros/limits.json`, which is root-owned and accepts the keys `sponsorDailyUsd`, `sponsorTotalUsd`, `perEpisodeUsd`, `blockedVenues` and `maxNonUrgentInboxPerDay`. The daemon uses the lowest of the file, the audit-log copy and `config.json`, and a venue id listed in `blockedVenues` cannot be registered.
+
+## Daily reports
+
+The daemon saves a status report every day at 00:00 UTC, independently of the budget timezone. Print the latest report with `ouro report`, or use `ouro report --short` for a compact post of at most 280 characters. `ouro report --now` prints an interim update for today, and `--json` returns the report with its timestamps. Nothing is published automatically.
+
+Reports include recorded status, NAV, lifetime profit and loss, deposits and withdrawals, inference costs, trades, completed episodes, incidents, model changes, harness updates, recent handoffs and journal entries. They use the audit log without an LLM call. Valuation times and missing prices are shown, and deposits are kept separate from profit.
+
+The report covers the preceding UTC day up to, but excluding, midnight. Reports are stored in `~/.ouroboros/reports/YYYY-MM-DD.json` and `.txt`, with `latest.json` and `latest.txt` copies. They remain readable when the daemon is stopped. After downtime, the next start or `ouro report` reconstructs the most recent completed day from the ledger. It does not invent reports for every missed day. Before the first midnight, the command returns an interim report. A paused or halted agent still gets reports while its daemon runs.
+
+Review the text before posting. Known vault secrets are redacted and private inbox contents are omitted. Handoffs and journal entries remain the agent's own words.
 
 ## Incidents
 

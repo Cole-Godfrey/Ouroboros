@@ -14,6 +14,7 @@ import { Vault } from '../core/vault.ts';
 import { loadConfig } from '../lib/config.ts';
 import { readJson } from '../lib/fsx.ts';
 import { resolvePaths } from '../lib/paths.ts';
+import { NODE_REQUIREMENT, supportedNode } from '../lib/runtime.ts';
 import { apiCall } from '../toolkit/client.ts';
 import { dim, fail, ok, warn } from './ui.ts';
 
@@ -52,8 +53,7 @@ export async function runDoctor(deep: boolean): Promise<number> {
   };
 
   // runtime
-  const [maj, min] = process.versions.node.split('.').map(Number);
-  out(maj > 22 || (maj === 22 && min >= 18) ? ok(`Node ${process.versions.node}`) : fail(`Node ${process.versions.node} (need 22.18+)`), !(maj > 22 || (maj === 22 && min >= 18)));
+  out(supportedNode() ? ok(`Node ${process.versions.node}`) : fail(`Node ${process.versions.node} (need ${NODE_REQUIREMENT})`), !supportedNode());
   const pi = [path.join(paths.root, 'node_modules', '.bin', 'pi'), path.join(paths.code, 'node_modules', '.bin', 'pi')].find((p) => fs.existsSync(p));
   if (pi) {
     const v = spawnSync(pi, ['--version'], { encoding: 'utf8', env: { ...process.env, PI_OFFLINE: '1', PI_SKIP_VERSION_CHECK: '1' } });

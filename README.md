@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/img/ouroboros.svg" alt="Ouroboros, a snake eating its own tail" width="180">
+  <img src="docs/img/ouroboros.png" alt="Ouroboros, a snake eating its own tail" width="180">
 </p>
 
 <h1 align="center">Ouroboros</h1>
@@ -22,6 +22,8 @@
 
 The agent has one goal, which is to maximise the long-run growth of its net asset value. Ten rules in the [Charter](agent/CHARTER.md) bind it and only you can change them. Everything else is its own call, including which markets to trade, what to buy and how to change its own code. You do only what a machine cannot, which is to create accounts, hand over API keys and move money.
 
+A daily report is generated at 00:00 UTC from the audit log. Run `ouro report` to print it, or `ouro report --short` for a compact version to post on X. Reports include status, financial results and new activity, and cost no model tokens.
+
 A small daemon wakes the agent, which runs on the [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) harness, only when something needs thought. The daemon briefs it from an independent ledger and records what it does, and between episodes the programs the agent wrote keep trading. A hash-chained audit log and a reconciler that reads balances from the venues themselves decide what is true, so the ledger outranks the model.
 
 The agent starts on a free language model because one dollar cannot pay for inference. It can move to a smarter paid model later, through a subscription or an API key, and that cost comes out of its capital. Every change it makes to itself passes a gate of typecheck, tests and a boot check, then a probation, and is rolled back automatically if it misbehaves.
@@ -34,7 +36,7 @@ You need macOS 13 or newer with Homebrew and a free OpenRouter API key.
 
 ```sh
 git clone https://github.com/Cole-Godfrey/Ouroboros
-cd Ouroboros && git checkout claude/stoic-hamilton-k9fz00
+cd Ouroboros
 ./vm/mac/setup.sh --keep-awake     # creates the VM, installs everything, starts `ouro init`
 ouro doctor --deep                 # verifies the install, including host and LAN isolation
 ouro wallet                        # the agent's address: send USDC and a little ETH on Base
@@ -48,6 +50,9 @@ Then answer the inbox item on your phone or with `ouro inbox`. The [operator gui
 
 ```text
 ouro status            NAV, profit and loss, growth, budget, venues, strategies
+ouro report            latest daily report, generated at 00:00 UTC
+ouro report --short    compact report to copy into X
+ouro report --now      interim report for today
 ouro inbox, reply      what the agent needs from you, and your answer
 ouro model             the model it thinks with, free or paid
 ouro pause, halt       stop waking the agent, or stop everything
@@ -70,7 +75,7 @@ ouro help              everything else
 | `test/` | Unit and end-to-end tests |
 | `docs/` | The system description, its PDF, the operator guide and the figures |
 
-Development needs Node 22.18 or newer, which runs the TypeScript directly. Run `npm ci && npm run check` for the typecheck and every test, which takes about a minute and needs no network. See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
+Development needs Node 22.22.2 or Node 24.15+ with npm 12.2+, which runs the TypeScript directly. Run `npm ci && npm run check` for the typecheck and every test, which takes about a minute and needs no network. See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
 
 ## Status
 

@@ -15,6 +15,7 @@ import { DEFAULT_CONFIG, loadConfig, type Limits } from '../lib/config.ts';
 import { ensureDir, readJson, writeJson } from '../lib/fsx.ts';
 import { resolvePaths, ROOT_DIR } from '../lib/paths.ts';
 import { ensureEvmWallet } from '../toolkit/evm.ts';
+import { NODE_REQUIREMENT, supportedNode } from '../lib/runtime.ts';
 import { ask, askHidden, bold, confirm, dim, green, yellow, cyan } from './ui.ts';
 
 /** write a root-owned file: try directly, then via passwordless sudo. */
@@ -59,8 +60,7 @@ export async function runInit(flags: Record<string, string | true>): Promise<voi
 
   // // refuse to continue on a node too old to run typescript natively
   // 0. environment
-  const [maj, min] = process.versions.node.split('.').map(Number);
-  if (maj < 22 || (maj === 22 && min < 18)) throw new Error(`Node ${process.versions.node} is too old; Ouroboros needs 22.18 or newer`);
+  if (!supportedNode()) throw new Error(`Node ${process.versions.node} is unsupported. Ouroboros needs ${NODE_REQUIREMENT}`);
   for (const d of [paths.home, paths.run, paths.logs, paths.memory, paths.strategies, paths.data, paths.workspace, paths.piAgentDir, paths.sessions, paths.releases]) ensureDir(d);
   fs.chmodSync(paths.home, 0o700);
   const vault = new Vault(paths);

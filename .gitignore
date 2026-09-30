@@ -1,4 +1,6 @@
 node_modules/
+AGENTS.md
+GOAL.md
 .env
 .env.*
 *.log

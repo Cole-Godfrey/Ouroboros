@@ -146,6 +146,7 @@ export function createApiHandler(d: Daemon) {
   const routes: Record<string, { write: boolean; fn: Handler }> = {
     'GET /healthz': { write: false, fn: () => ({ ok: true, pid: process.pid, sha: d.selfmod.runningSha(), uptimeSec: Math.round((d.clock() - d.startedAt) / 1000) }) },
     'GET /v1/status': { write: false, fn: () => status() },
+    'GET /v1/report': { write: false, fn: (q) => d.reports.latest(q.get('now') === '1') },
     'GET /v1/dashboard': { write: false, fn: () => dashboard() },
     'GET /v1/config': { write: false, fn: () => ({ config: d.cfg(), limits: d.limits() }) },
     'GET /v1/ledger/tail': {

@@ -123,6 +123,16 @@ test('the daemon runs the genesis episode by itself, notifies the operator, mete
     const token = fs.readFileSync(d.paths.dashboardToken, 'utf8').trim();
     const dash: any = await fetch(`http://127.0.0.1:${d.dashboardPort}/v1/dashboard?token=${token}`).then((r) => r.json());
     assert.equal(dash.episodes[0].outcome, 'completed');
+    const report: any = await fetch(`http://127.0.0.1:${d.dashboardPort}/v1/report?token=${token}&now=1`).then((r) => r.json());
+    assert.match(report.text, /Waiting for funds/);
+    assert.equal(report.complete, false);
+    assert.equal((await fetch(`http://127.0.0.1:${d.dashboardPort}/v1/report`)).status, 401);
+    const artwork = await fetch(`http://127.0.0.1:${d.dashboardPort}/ouroboros.png`);
+    assert.equal(artwork.headers.get('content-type'), 'image/png');
+    assert.equal(Buffer.from(await artwork.arrayBuffer()).subarray(1, 4).toString(), 'PNG');
+    // operator events must reach the scheduler through its live subscription.
+    d.inbox.say('Review the latest report.');
+    assert.ok(d.scheduler.status().pending.some((t) => t.kind === 'operator'));
     assert.equal((await fetch(`http://127.0.0.1:${d.dashboardPort}/v1/control`, { method: 'POST' })).status, 401);
     assert.equal(d.store.log.verify().ok, true);
   } finally {

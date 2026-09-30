@@ -1,6 +1,6 @@
 # Contributing
 
-The harness is TypeScript that Node 22.18 or newer runs directly, with no build step. The only runtime dependencies are Pi and viem.
+The harness is TypeScript that Node 22.22.2 or Node 24.15+ with npm 12.2+ runs directly, with no build step. The only runtime dependencies are Pi and viem.
 
 Run `npm ci` once, then `npm run check` before every change. It runs the typecheck and all tests in about a minute, offline. The tests include end-to-end runs of the real Pi against a scripted model, so they exercise the agent extension, the metering proxy, the daemon and the self-modification pipeline together.
 

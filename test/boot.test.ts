@@ -18,7 +18,12 @@ function setup() {
     fs.writeFileSync(path.join(dir, 'daemon.mjs'), script);
     return dir;
   };
-  const link = (name: string, dir: string) => { try { fs.rmSync(path.join(home, name), { force: true }); } catch { /* */ } fs.symlinkSync(dir, path.join(home, name)); };
+  // match production's atomic swap so the supervisor never observes a missing release.
+  const link = (name: string, dir: string) => {
+    const next = path.join(home, `${name}.next`);
+    fs.symlinkSync(dir, next);
+    fs.renameSync(next, path.join(home, name));
+  };
   const counter = path.join(home, 'starts.log');
   // the fake daemon appends its release name to a file, then behaves per the release's script
   const script = (body: string) => `import fs from 'node:fs'; fs.appendFileSync(${JSON.stringify(counter)}, process.env.OURO_RELEASE.split('/').pop() + '\\n'); ${body}`;
@@ -54,10 +59,15 @@ test('a restart after promotion runs the NEW release (the symlink is re-resolved
   t.link('current', a);
   const sup = t.mk();
   const run = sup.run();
-  await new Promise((r) => setTimeout(r, 300)); // rel-a restarts itself in a loop until the link flips
-  t.link('current', b);
-  await run;
-  assert.deepEqual(t.starts().filter((s, i, arr) => i === 0 || s !== arr[i - 1]).slice(0, 2), ['rel-a', 'rel-b']);
+  try {
+    await new Promise((r) => setTimeout(r, 300)); // rel-a restarts itself in a loop until the link flips
+    t.link('current', b);
+    await run;
+    assert.deepEqual(t.starts().filter((s, i, arr) => i === 0 || s !== arr[i - 1]).slice(0, 2), ['rel-a', 'rel-b']);
+  } finally {
+    sup.stop();
+    await run;
+  }
 });
 
 test('crash loop during probation rolls current back to the last known good release and records it', async () => {

@@ -236,9 +236,11 @@ export function createApiHandler(d: Daemon) {
         store.sync();
         const f = store.state.inflows.get(id);
         if (!f) bad('no such inflow');
-        store.append('inflow.resolve', { id, as, by: b.by === 'agent' ? 'agent' : 'operator' });
-        if (as === 'capital') store.append('capital.in', { usd: f!.usd, venue: f!.venue, ref: f!.ref, by: b.by === 'agent' ? 'agent' : 'operator', note: 'classified from unclassified inflow' });
-        if (as === 'income') store.append('income', { usd: f!.usd, category: 'other', memo: `classified inflow ${f!.ref ?? id}`, ref: f!.ref });
+        if (f!.resolved) bad('inflow already classified');
+        // date the classification to the transfer so a late decision corrects that day's report.
+        store.append('inflow.resolve', { id, as, at: f!.ts, by: b.by === 'agent' ? 'agent' : 'operator' });
+        if (as === 'capital') store.append('capital.in', { usd: f!.usd, venue: f!.venue, ref: f!.ref, at: f!.ts, by: b.by === 'agent' ? 'agent' : 'operator', note: 'classified from unclassified inflow' });
+        if (as === 'income') store.append('income', { usd: f!.usd, category: 'other', memo: `classified inflow ${f!.ref ?? id}`, ref: f!.ref, at: f!.ts });
         return { ok: true };
       },
     },

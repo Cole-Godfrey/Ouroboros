@@ -123,6 +123,10 @@ const venue: VenueModule = {
       if (!log.transactionHash || log.logIndex === null || log.args.from?.toLowerCase() === wallet) continue;
       const block = blocks.get(log.blockNumber!);
       if (!block) throw new Error('missing block for Base USDC transfer');
+      const tx = block.transactions.find((t) => typeof t !== 'string' && t.hash === log.transactionHash);
+      if (!tx || typeof tx === 'string') throw new Error('missing transaction for Base USDC transfer');
+      // swap proceeds and contract withdrawals initiated by this wallet are already part of NAV.
+      if (tx.from.toLowerCase() === wallet) continue;
       flows.push({ kind: 'deposit', asset: 'USDC', qty: Number(formatUnits(log.args.value ?? 0n, 6)), ref: `base:${log.transactionHash}:usdc:${log.logIndex}`, from: log.args.from, to: address, ts: Number(block.timestamp) * 1000 });
     }
     for (const block of blocks.values()) {

@@ -145,6 +145,7 @@ test('evm-wallet scans confirmed Base USDC logs and successful ETH transfers wit
   const transfers = [
     { block: 4, index: 0, value: 1_500_000 },
     { block: 4, index: 1, value: 2_000_000 },
+    { block: 4, index: 2, value: 4_000_000, own: true }, // swap proceeds are not external funding.
     { block: 5, index: 0, value: 3_000_000 },
     { block: 6, index: 0, value: 9_000_000 }, // the unconfirmed block must stay invisible.
   ];
@@ -155,14 +156,14 @@ test('evm-wallet scans confirmed Base USDC logs and successful ETH transfers wit
     if (method === 'eth_getBlockByNumber') {
       const n = Number(BigInt(params[0]));
       assert.ok(n <= 5, 'unconfirmed blocks must not be read');
-      const transactions = n === 4 ? [tx(1, 1_000_000_000_000_000n, n), tx(2, 100_000_000_000_000_000n, n)] : [];
+      const transactions = n === 4 ? [tx(1, 1_000_000_000_000_000n, n), tx(2, 100_000_000_000_000_000n, n), { ...tx(24, 0n, n), to: usdc }, { ...tx(26, 0n, n), from: wallet, to: usdc }] : n === 5 ? [{ ...tx(25, 0n, n), to: usdc }] : [];
       return { number: hex(n), timestamp: hex(Math.floor((cutoff - 5_000 + n * 1_000) / 1000)), hash: hash(n + 100), parentHash: hash(n + 99), nonce: '0x0000000000000000', sha3Uncles: hash(0), logsBloom: `0x${'0'.repeat(512)}`, transactionsRoot: hash(0), stateRoot: hash(0), receiptsRoot: hash(0), miner: wallet, difficulty: '0x0', totalDifficulty: '0x0', extraData: '0x', size: '0x0', gasLimit: '0x100000', gasUsed: '0x0', baseFeePerGas: '0x1', transactions: params[1] ? transactions : transactions.map((t) => t.hash), uncles: [] };
     }
     if (method === 'eth_getLogs') {
       const filter = params[0];
       assert.equal(filter.address.toLowerCase(), usdc.toLowerCase());
       assert.equal(filter.topics[2].toLowerCase(), topicAddress(wallet).toLowerCase());
-      return transfers.filter((t) => t.block >= Number(BigInt(filter.fromBlock)) && t.block <= Number(BigInt(filter.toBlock))).map((t) => ({ address: usdc, blockNumber: hex(t.block), blockHash: hash(t.block + 100), transactionHash: hash(20 + t.block), transactionIndex: '0x0', logIndex: hex(t.index), data: hash(t.value), topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef', topicAddress(sender), topicAddress(wallet)], removed: false }));
+      return transfers.filter((t) => t.block >= Number(BigInt(filter.fromBlock)) && t.block <= Number(BigInt(filter.toBlock))).map((t) => ({ address: usdc, blockNumber: hex(t.block), blockHash: hash(t.block + 100), transactionHash: hash(t.own ? 26 : 20 + t.block), transactionIndex: '0x0', logIndex: hex(t.index), data: hash(t.value), topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef', topicAddress(sender), topicAddress(wallet)], removed: false }));
     }
     if (method === 'eth_getTransactionReceipt') {
       const failed = params[0] === hash(2);

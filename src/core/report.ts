@@ -27,7 +27,7 @@ export interface StatusReport {
 
 // a transfer discovered after midnight still belongs to the day it landed.
 function reportTime(ev: LogEvent): number {
-  if (['capital.in', 'capital.out', 'inflow.unclassified'].includes(ev.type) && Number.isFinite(ev.data?.at)) return ev.data.at;
+  if (['capital.in', 'capital.out', 'income', 'inflow.unclassified', 'inflow.resolve'].includes(ev.type) && Number.isFinite(ev.data?.at)) return ev.data.at;
   return ev.ts;
 }
 

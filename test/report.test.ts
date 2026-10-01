@@ -114,8 +114,18 @@ test('a report waits for a transfer scan through midnight and corrects late tran
   assert.deepEqual(t.reports.generateDue(), corrected);
   assert.equal(fs.statSync(path.join(t.paths.home, 'reports', '2026-01-01.json')).mtimeMs, before);
 
+  // resolving tomorrow must remove the provisional label from the deposit day.
+  t.store.append('inflow.resolve', { id: 'late', as: 'capital', at: cutoff - 1_000 });
+  t.store.append('capital.in', { usd: 1, venue: 'evm-wallet', ref: 'base:late:usdc:0', at: cutoff - 1_000 });
+  const classified = t.reports.generateDue()!;
+  assert.equal(classified.revision, 3);
+  assert.match(classified.text, /Lifetime P&L: \$0\.00\./);
+  assert.match(classified.text, /Contributions: \$2\.00 total/);
+  assert.match(classified.text, /Unresolved inflows: 0 \(\$0\.00\)/);
+  assert.doesNotMatch(classified.short, /provisional/);
+
   t.store.append('capital.in', { usd: 5, venue: 'evm-wallet', at: cutoff });
-  assert.deepEqual(t.reports.generateDue(), corrected);
+  assert.deepEqual(t.reports.generateDue(), classified);
 });
 
 test('a transfer discovered days later revises its original archive without replacing the latest day', () => {

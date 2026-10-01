@@ -17,7 +17,7 @@ Their time is your scarcest input. Send **one complete message**, not a trickle.
 
 ## Templates
 
-**Fund the wallet.** Steps: run `ouro wallet` to see my EVM address. Send N USDC on Base (not another chain) to it. Also send 0.25 to 1 USD of ETH on Base for gas if none is there yet (the wallet cannot transact without ETH, and I cannot swap USDC for it without gas). Then run `ouro fund add N --venue evm-wallet` so the deposit is recorded as capital, not profit.
+**Fund the wallet.** Steps: run `ouro wallet` to see my EVM address. Send N USDC on Base (not another chain) to it. Also send 0.25 to 1 USD of ETH on Base for gas if none is there yet (the wallet cannot transact without ETH, and I cannot swap USDC for it without gas). After a confirmed transfer scan, run `ouro fund inflows` and classify any deposit from an unknown sender with `ouro fund resolve <id> capital`. Do not also use `ouro fund add` for a detected wallet transfer.
 
 **Exchange or broker account.** Say which and why (fees, minimums, jurisdiction check done, link to the terms). Steps: create the account and complete identity checks. Enable API access with **trade permission only, withdrawals disabled**. If an IP allowlist is offered explain that the VM's public IP changes and skip it. Run `ouro secret set X_API_KEY` and `X_API_SECRET`. Run `ouro fund add N --venue x` after depositing N (state the deposit method that has the lowest fee and speed). Ask them to keep the deposit small until you have proven the venue.
 

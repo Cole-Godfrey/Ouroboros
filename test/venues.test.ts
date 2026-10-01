@@ -132,6 +132,66 @@ test('evm-wallet adapter reads native + USDC balances over JSON-RPC and sums the
   }
 });
 
+test('evm-wallet scans confirmed Base USDC logs and successful ETH transfers with stable unique refs', async () => {
+  const { p, paths } = env();
+  const wallet = '0x1111111111111111111111111111111111111111';
+  const sender = '0x2222222222222222222222222222222222222222';
+  const usdc = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+  const cutoff = Date.UTC(2026, 0, 2);
+  const hash = (n: number) => `0x${n.toString(16).padStart(64, '0')}`;
+  const hex = (n: number | bigint) => `0x${BigInt(n).toString(16)}`;
+  const topicAddress = (address: string) => `0x${address.slice(2).padStart(64, '0')}`;
+  const tx = (n: number, value: bigint, blockNumber: number) => ({ hash: hash(n), blockHash: hash(blockNumber + 100), blockNumber: hex(blockNumber), from: sender, to: wallet, value: hex(value), gas: '0x5208', gasPrice: '0x1', input: '0x', nonce: '0x0', transactionIndex: hex(n - 1), type: '0x0', v: '0x1b', r: hash(0), s: hash(0) });
+  const transfers = [
+    { block: 4, index: 0, value: 1_500_000 },
+    { block: 4, index: 1, value: 2_000_000 },
+    { block: 5, index: 0, value: 3_000_000 },
+    { block: 6, index: 0, value: 9_000_000 }, // the unconfirmed block must stay invisible.
+  ];
+  const methods: string[] = [];
+  const rpc = await rpcServer((method, params) => {
+    methods.push(method);
+    if (method === 'eth_blockNumber') return hex(17); // block 5 has 12 confirmations.
+    if (method === 'eth_getBlockByNumber') {
+      const n = Number(BigInt(params[0]));
+      assert.ok(n <= 5, 'unconfirmed blocks must not be read');
+      const transactions = n === 4 ? [tx(1, 1_000_000_000_000_000n, n), tx(2, 100_000_000_000_000_000n, n)] : [];
+      return { number: hex(n), timestamp: hex(Math.floor((cutoff - 5_000 + n * 1_000) / 1000)), hash: hash(n + 100), parentHash: hash(n + 99), nonce: '0x0000000000000000', sha3Uncles: hash(0), logsBloom: `0x${'0'.repeat(512)}`, transactionsRoot: hash(0), stateRoot: hash(0), receiptsRoot: hash(0), miner: wallet, difficulty: '0x0', totalDifficulty: '0x0', extraData: '0x', size: '0x0', gasLimit: '0x100000', gasUsed: '0x0', baseFeePerGas: '0x1', transactions: params[1] ? transactions : transactions.map((t) => t.hash), uncles: [] };
+    }
+    if (method === 'eth_getLogs') {
+      const filter = params[0];
+      assert.equal(filter.address.toLowerCase(), usdc.toLowerCase());
+      assert.equal(filter.topics[2].toLowerCase(), topicAddress(wallet).toLowerCase());
+      return transfers.filter((t) => t.block >= Number(BigInt(filter.fromBlock)) && t.block <= Number(BigInt(filter.toBlock))).map((t) => ({ address: usdc, blockNumber: hex(t.block), blockHash: hash(t.block + 100), transactionHash: hash(20 + t.block), transactionIndex: '0x0', logIndex: hex(t.index), data: hash(t.value), topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef', topicAddress(sender), topicAddress(wallet)], removed: false }));
+    }
+    if (method === 'eth_getTransactionReceipt') {
+      const failed = params[0] === hash(2);
+      return { blockHash: hash(104), blockNumber: '0x4', contractAddress: null, cumulativeGasUsed: '0x5208', effectiveGasPrice: '0x1', from: sender, to: wallet, gasUsed: '0x5208', logs: [], logsBloom: `0x${'0'.repeat(512)}`, status: failed ? '0x0' : '0x1', transactionHash: params[0], transactionIndex: failed ? '0x1' : '0x0', type: '0x0' };
+    }
+    throw new Error(`unexpected ${method}`);
+  });
+  try {
+    fs.writeFileSync(paths.wallets, JSON.stringify({ evm: { address: wallet } }));
+    const dataDir = path.join(p.data, 'venues', 'evm-wallet');
+    fs.mkdirSync(dataDir, { recursive: true });
+    fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify({ chains: ['base'], rpc: { base: rpc.url } }));
+    const scan = (since: number) => runVenueMethod<{ flows: Array<{ asset: string; qty: number; ref: string; ts: number }>; through: number }>({ paths: p, module: 'builtin/evm-wallet', method: 'flows', venueId: 'evm-wallet', args: { since } });
+    const first = await scan(cutoff - 2_500);
+    assert.equal(first.ok, true, first.error);
+    assert.equal(first.result!.through, cutoff);
+    assert.equal(first.result!.flows.length, 4);
+    assert.equal(new Set(first.result!.flows.map((f) => f.ref)).size, 4);
+    assert.deepEqual(first.result!.flows.map((f) => f.asset).sort(), ['ETH', 'USDC', 'USDC', 'USDC']);
+    assert.equal(first.result!.flows.find((f) => f.asset === 'ETH')?.qty, 0.001);
+    assert.equal(first.result!.flows.filter((f) => f.ts < cutoff).length, 3);
+    assert.deepEqual((await scan(cutoff - 2_500)).result!.flows.map((f) => f.ref), first.result!.flows.map((f) => f.ref));
+    assert.equal((await scan(cutoff)).result!.flows.length, 1);
+    assert.ok(methods.includes('eth_getTransactionReceipt'));
+  } finally {
+    await rpc.close();
+  }
+});
+
 test('evm-wallet adapter fails the whole snapshot if any chain is unreachable (no phantom loss)', async () => {
   const { p, paths } = env();
   fs.writeFileSync(paths.wallets, JSON.stringify({ evm: { address: '0x1111111111111111111111111111111111111111' } }));

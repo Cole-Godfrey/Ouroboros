@@ -11,9 +11,9 @@ import { makeStore, PAID_LLM } from './helpers.ts';
 function setup(cfgOver: any = {}) {
   const env = makeStore();
   const answers = new Map<string, any>(); // venue id -> snapshot | Error | {flows}
-  const callVenue: VenueCall = async (v, method) => {
+  const callVenue: VenueCall = async (v, method, args) => {
     const a = answers.get(v.id);
-    if (method === 'flows') return a?.flows ? { ok: true, result: a.flows, durationMs: 1 } : { ok: false, error: 'no flows()', durationMs: 1 };
+    if (method === 'flows') return a?.flows ? { ok: true, result: typeof a.flows === 'function' ? a.flows((args as { since: number }).since) : a.flows, durationMs: 1 } : { ok: false, error: 'no flows()', durationMs: 1 };
     if (a instanceof Error) return { ok: false, error: a.message, durationMs: 1 };
     return { ok: true, result: a, durationMs: 1 };
   };
@@ -138,6 +138,36 @@ test('adapter-reported flows: operator deposits become capital, unknown senders 
   await t.rec.round(); // same flows reported again
   assert.equal(t.store.state.contributedUsd, 1);
   assert.equal(t.store.state.unclassifiedInflows().length, 1);
+});
+
+test('flow scans use the previous cursor and catch a confirmed transfer just before midnight', async () => {
+  const t = setup({ operator: { addresses: ['0xabc0000000000000000000000000000000000001'] } });
+  const cutoff = Date.UTC(2026, 0, 2);
+  t.clock.set(cutoff - 1_000);
+  t.register('w', { hasFlows: true });
+  const requests: number[] = [];
+  let through = cutoff - 2_000;
+  const transfer = { kind: 'deposit', asset: 'USDC', qty: 1, ref: 'base:midnight:usdc:0', from: '0xabc0000000000000000000000000000000000001', ts: cutoff - 1_000 };
+  t.answers.set('w', {
+    holdings: [{ asset: 'USDC', qty: 1 }],
+    flows: (since: number) => {
+      requests.push(since);
+      return { flows: through >= cutoff ? [transfer] : [], through };
+    },
+  });
+  // a small adapter wrapper returns a scan based on the requested cursor.
+  const original = t.rec;
+  await original.round();
+  assert.equal(t.store.state.contributedUsd, 0);
+  t.clock.set(cutoff + 2_000);
+  through = cutoff + 1_000;
+  await original.round();
+  assert.equal(t.store.state.contributedUsd, 1);
+  assert.ok(requests[1] < cutoff - 1_000);
+  assert.equal(t.store.state.flows[0].ts, cutoff - 1_000);
+  await original.round();
+  assert.equal(t.store.state.contributedUsd, 1);
+  assert.equal(t.store.state.venues.get('w')!.lastFlowScan?.through, cutoff + 1_000);
 });
 
 test('unpriced assets are excluded from NAV and surfaced as an incident', async () => {

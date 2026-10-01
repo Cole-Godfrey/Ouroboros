@@ -133,14 +133,14 @@ The kill switches, from weakest to strongest, are `ouro pause`, which stops waki
 
 ## 9. Working with the agent
 
-Your part is to open accounts, pass identity checks, hand over keys, move money and record that you did. The agent says exactly what it needs and when. To hand over a key you run `ouro secret set NAME`, which asks for the value at a hidden prompt so the agent never sees it. To move money you send USDC on Base to the address `ouro wallet` prints and then run `ouro fund add <usd> --venue V`, so the deposit is not mistaken for profit. To steer the agent you run `ouro reply <id> <text>` or `ouro say <text>`, which wakes it and outranks its plans. To change how intelligent it is allowed to be you can run `ouro model set <model>`, although the agent may do this itself.
+Your part is to open accounts, pass identity checks, hand over keys, move money and classify any unknown sender inflow. The agent says exactly what it needs and when. To hand over a key you run `ouro secret set NAME`, which asks for the value at a hidden prompt so the agent never sees it. To move money you send USDC on Base to the address `ouro wallet` prints. Confirmed Base transfers are detected automatically; use `ouro fund inflows` and `ouro fund resolve <id> capital` if the sender is not in `operator.addresses`. To steer the agent you run `ouro reply <id> <text>` or `ouro say <text>`, which wakes it and outranks its plans. To change how intelligent it is allowed to be you can run `ouro model set <model>`, although the agent may do this itself.
 
 Everything the agent needs arrives as one inbox item with the reason, numbered steps, the exact secret names, the time it takes and what the agent does meanwhile. Non-urgent items are capped at six a day, which forces it to batch, and incidents and urgent items always get through. `ouro init` creates a private ntfy topic, and every inbox item, alert and incident lands on your phone once you subscribe. Telegram is optional and adds authenticated replies. The dashboard is a read-only page at `127.0.0.1:7777` on your Mac behind a token that `ouro dashboard` prints.
 
 | Command | What it does |
 | --- | --- |
 | `ouro status` | NAV, profit and loss, growth rate, budget, venues, strategies |
-| `ouro report` | Latest daily report, generated at 00:00 UTC. Use `--short` for X or `--now` for an interim update |
+| `ouro report` | Latest daily report, finalized after transfer scans cover 00:00 UTC. Use `--short` for X or `--now` for an interim update |
 | `ouro inbox` | What the agent needs from you and the conversation so far |
 | `ouro model` | The model the agent thinks with, and whether it is free |
 | `ouro pause`, `resume`, `halt` | Stop waking the agent, or stop everything including strategies |
@@ -151,11 +151,11 @@ Everything the agent needs arrives as one inbox item with the reason, numbered s
 | `ouro wallet export` | Print the wallet key once, for your own backup |
 | `ouro chat` | Talk to the agent directly in an interactive Pi session |
 
-Daily reports are generated at 00:00 UTC by replaying the audit log to the midnight cutoff. They include recorded status, NAV, lifetime profit and loss, capital flows, costs, trades, episodes and new developments. They use no model calls and do not change agent scheduling or permissions. The archives live under `~/.ouroboros/reports/` and are readable through `ouro report` even when the daemon is down. After downtime, the latest completed day is reconstructed. `ouro report --short` returns a compact post, `--now` returns an interim update, and `--json` includes timestamps. Publishing remains the operator's action.
+Daily reports replay the audit log to the midnight UTC cutoff and finalize after confirmed transfer scans cover it. A late transfer can revise an archive. Reports include recorded status, NAV, provisional profit and loss when inflows are unresolved, contributions, valuation time, costs, paper and live trades, episodes and new developments. Public copy excludes handoffs and journal text. They use no model calls and do not change agent scheduling or permissions. The archives live under `~/.ouroboros/reports/` and are readable through `ouro report` even when the daemon is down. After downtime, the latest completed day is reconstructed. `ouro report --short` returns a compact post, `--now` returns an interim update, and `--json` includes timestamps. Publishing remains the operator's action.
 
 ## 10. Setup
 
-The runbook is [OPERATOR_GUIDE.md](OPERATOR_GUIDE.md). In outline, you clone the repository on your Mac, run `./vm/mac/setup.sh --keep-awake`, answer `ouro init` with a free OpenRouter key, check `ouro doctor --deep`, fund the wallet and record it with `ouro fund add`, run `ouro start`, and watch the first hours.
+The runbook is [OPERATOR_GUIDE.md](OPERATOR_GUIDE.md). In outline, you clone the repository on your Mac, run `./vm/mac/setup.sh --keep-awake`, answer `ouro init` with a free OpenRouter key, check `ouro doctor --deep`, fund the wallet and classify any unknown sender inflow, run `ouro start`, and watch the first hours.
 
 ## 11. The repository
 
@@ -215,7 +215,7 @@ A paid episode on a frontier model with 20 turns and 40,000 tokens of context co
 | A self-modification weakens a safeguard | Low | Silent loss of a guarantee | Protected paths, Charter seal, hash-chained log |
 | The Mac sleeps or the VM stalls | Medium | Open positions unwatched | Keep-awake, exchange-side stops, strategy drawdown guards |
 | Legal, tax or terms-of-service trouble | Real | Frozen account, liability | Charter rule 2, jurisdiction in config, complete trade log. Not legal advice |
-| You forget `ouro fund add` or send funds on the wrong chain | Medium | Mis-stated profit, or lost funds | The CLI prints exact steps, and an unexplained NAV rise raises an incident |
+| You leave an inflow unclassified or send funds on the wrong chain | Medium | Provisional returns, or lost funds | The wallet scans confirmed Base transfers and the CLI shows inflows awaiting classification |
 
 Validation on September 30, 2026 passed the typecheck and all 125 tests on an Apple silicon Mac with Node 24.15 and in its Ubuntu 24.04 Lima VM with Node 22.23. The Mac installer created and provisioned the VM with no host mounts, and the loaded nftables policy passed its connectivity and host/LAN probes. The real Pi boot check loaded every required tool. Scripted model tests exercised the full daemon lifecycle, notifications, metering, reconciliation, dashboard, reports and self-modification. UTC report tests cover midnight cutoffs, restarts, missing valuations, offline CLI output, redaction and paused operation. npm 12.2 installs the patched dependency tree with no reported vulnerabilities. CI repeats the typecheck and tests on Linux and macOS with Node 22 and 24.
 

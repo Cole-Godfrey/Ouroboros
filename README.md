@@ -22,7 +22,7 @@
 
 The agent has one goal, which is to maximise the long-run growth of its net asset value. Ten rules in the [Charter](agent/CHARTER.md) bind it and only you can change them. Everything else is its own call, including which markets to trade, what to buy and how to change its own code. You do only what a machine cannot, which is to create accounts, hand over API keys and move money.
 
-A daily report is generated at 00:00 UTC from the audit log. Run `ouro report` to print it, or `ouro report --short` for a compact version to post on X. Reports include status, financial results and new activity, and cost no model tokens.
+A daily report is finalized after transfer scans cover 00:00 UTC. Run `ouro report` to print it, or `ouro report --short` for a compact version to post on X. Reports include status, financial results and new activity, and cost no model tokens.
 
 A small daemon wakes the agent, which runs on the [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) harness, only when something needs thought. The daemon briefs it from an independent ledger and records what it does, and between episodes the programs the agent wrote keep trading. A hash-chained audit log and a reconciler that reads balances from the venues themselves decide what is true, so the ledger outranks the model.
 
@@ -40,8 +40,9 @@ cd Ouroboros
 ./vm/mac/setup.sh --keep-awake     # creates the VM, installs everything, starts `ouro init`
 ouro doctor --deep                 # verifies the install, including host and LAN isolation
 ouro wallet                        # the agent's address: send USDC and a little ETH on Base
-ouro fund add 1.25 --venue evm-wallet
 ouro start
+ouro fund inflows                  # after the wallet scans the confirmed transfers
+ouro fund resolve <id> capital     # classify any deposit from an unknown sender
 ```
 
 Then answer the inbox item on your phone or with `ouro inbox`. The [operator guide](docs/OPERATOR_GUIDE.md) has the full runbook.
@@ -50,7 +51,7 @@ Then answer the inbox item on your phone or with `ouro inbox`. The [operator gui
 
 ```text
 ouro status            NAV, profit and loss, growth, budget, venues, strategies
-ouro report            latest daily report, generated at 00:00 UTC
+ouro report            latest daily report, finalized after midnight transfer scans
 ouro report --short    compact report to copy into X
 ouro report --now      interim report for today
 ouro inbox, reply      what the agent needs from you, and your answer

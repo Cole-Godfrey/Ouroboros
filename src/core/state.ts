@@ -24,7 +24,9 @@ export interface VenueState {
   secrets: string[];
   guard?: { maxDrawdownPct?: number };
   enabled: boolean;
+  hasFlows?: boolean;
   registeredAt: number;
+  lastFlowScan?: { since: number; through: number };
   latest?: { ts: number; totalUsd: number; holdings: Holding[]; unpriced: string[] };
   peakUsd: number;
   lastError?: { ts: number; message: string };
@@ -173,6 +175,7 @@ export interface Metrics {
   withdrawnUsd: number;
   netContributedUsd: number;
   pnlUsd: number;
+  performanceProvisional: boolean;
   pnlPct: number | null;
   subsidyUsd: number;
   pnlAfterSubsidyUsd: number;
@@ -279,7 +282,9 @@ export class State {
           secrets: d.secrets ?? prev?.secrets ?? [],
           guard: d.guard ?? prev?.guard,
           enabled: d.enabled ?? prev?.enabled ?? true,
+          hasFlows: d.hasFlows ?? prev?.hasFlows ?? d.module === 'builtin/evm-wallet',
           registeredAt: prev?.registeredAt ?? ev.ts,
+          lastFlowScan: prev?.lastFlowScan,
           latest: prev?.latest,
           peakUsd: prev?.peakUsd ?? 0,
           lastError: prev?.lastError,
@@ -313,8 +318,14 @@ export class State {
         this.navSeries.push({ ts: ev.ts, usd: Number(d.usd) || 0, stale: d.stale });
         break;
 
+      case 'venue.flows.scan': {
+        const v = this.venues.get(d.venue);
+        if (v) v.lastFlowScan = { since: d.since, through: d.through };
+        break;
+      }
+
       case 'inflow.unclassified':
-        this.inflows.set(d.id, { id: d.id, ts: ev.ts, venue: d.venue, usd: d.usd, asset: d.asset, from: d.from, ref: d.ref });
+        this.inflows.set(d.id, { id: d.id, ts: d.at ?? ev.ts, venue: d.venue, usd: d.usd, asset: d.asset, from: d.from, ref: d.ref });
         break;
       case 'inflow.resolve': {
         const f = this.inflows.get(d.id);
@@ -561,7 +572,8 @@ export class State {
     const pts = this.navSeries;
     const out: IndexPoint[] = [];
     if (pts.length) {
-      const flows = [...this.flows].sort((a, b) => a.ts - b.ts);
+      // pending inflows are temporary flows until the operator classifies them.
+      const flows = [...this.flows, ...this.unclassifiedInflows().map((i) => ({ ts: i.ts, usd: i.usd, kind: 'in' as const }))].sort((a, b) => a.ts - b.ts);
       let index = 1;
       out.push({ ts: pts[0].ts, nav: pts[0].usd, index });
       let fi = 0;
@@ -603,6 +615,7 @@ export class State {
     const b = pts[pts.length - 1];
     let flowUsd = 0;
     for (const f of this.flows) if (f.ts > a.ts && f.ts <= b.ts) flowUsd += f.kind === 'in' ? f.usd : -f.usd;
+    for (const i of this.unclassifiedInflows()) if (i.ts > a.ts && i.ts <= b.ts) flowUsd += i.usd;
     const denom = a.usd;
     const ret = denom > 1e-9 ? (b.usd - a.usd - flowUsd) / denom : 0;
     return { t0: a.ts, t1: b.ts, v0: a.usd, v1: b.usd, flowUsd, returnPct: ret };
@@ -693,7 +706,9 @@ export class State {
   metrics(now: number): Metrics {
     const nav = this.navSeries.length ? this.navSeries[this.navSeries.length - 1].usd : this.liveNavUsd();
     const net = this.netContributedUsd();
-    const pnl = roundUsd(nav - net);
+    // an unknown inflow is neither earned profit nor confirmed operator capital yet.
+    const unclassifiedUsd = roundUsd(this.unclassifiedInflows().reduce((s, i) => s + i.usd, 0));
+    const pnl = roundUsd(nav - net - unclassifiedUsd);
     const idx = this.wealthIndex();
     const dd = this.drawdown();
     const g = {
@@ -719,7 +734,8 @@ export class State {
       withdrawnUsd: this.withdrawnUsd,
       netContributedUsd: net,
       pnlUsd: pnl,
-      pnlPct: net > 0 ? pnl / net : null,
+      performanceProvisional: unclassifiedUsd > 0,
+      pnlPct: net > 0 && unclassifiedUsd === 0 ? pnl / net : null,
       subsidyUsd: this.subsidyUsd(),
       pnlAfterSubsidyUsd: roundUsd(pnl - this.subsidyUsd()),
       index: idx.length ? idx[idx.length - 1].index : 1,
@@ -729,7 +745,7 @@ export class State {
       drawdown: dd.current,
       staleVenues: stale,
       unpricedAssets: [...unpriced],
-      unclassifiedUsd: roundUsd(this.unclassifiedInflows().reduce((s, i) => s + i.usd, 0)),
+      unclassifiedUsd,
       burnPerDayUsd: burn,
       runwayDays: capBurn > 0 ? nav / capBurn : undefined,
       openIncidents: this.openIncidents().length,

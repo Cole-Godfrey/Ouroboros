@@ -177,7 +177,7 @@ export async function runInit(flags: Record<string, string | true>): Promise<voi
   say(bold('Next'));
   say(`  1. ${cyan('ouro start')}           start the daemon (it also starts at boot)`);
   say(`  2. ${cyan('ouro doctor')}          verify everything, including network isolation`);
-  say(`  3. Send the agent its first dollar to ${w.address} (USDC on Base), then ${cyan('ouro fund add 1 --venue evm-wallet')}`);
+  say(`  3. Send the agent its first dollar to ${w.address} (USDC on Base). After ${cyan('ouro start')} scans it, classify any unknown sender with ${cyan('ouro fund inflows')} and ${cyan('ouro fund resolve <id> capital')}`);
   say(`  4. ${cyan('ouro dashboard')}       open the dashboard from your Mac`);
   say(`  5. ${cyan('ouro inbox')}           the agent will ask you for what it needs`);
 }

@@ -35,6 +35,12 @@ export interface VenueFlow {
   ts?: number;
 }
 
+export interface VenueFlowScan {
+  flows: VenueFlow[];
+  /** transfer timestamp through which the adapter completed its scan, inclusive. */
+  through: number;
+}
+
 export interface VenueContext {
   /** only the secrets this venue declared, plus a minimal process environment. */
   env: Record<string, string | undefined>;
@@ -51,7 +57,7 @@ export interface VenueModule {
   secrets?: string[];
   snapshot(ctx: VenueContext): Promise<VenueSnapshot>;
   /** optional: transfers in/out since a timestamp, so deposits are not mistaken for profit. */
-  flows?(ctx: VenueContext, sinceTs: number): Promise<VenueFlow[]>;
+  flows?(ctx: VenueContext, sinceTs: number): Promise<VenueFlow[] | VenueFlowScan>;
 }
 
 export interface RunnerResult<T = unknown> {

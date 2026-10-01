@@ -267,7 +267,7 @@ export function createApiHandler(d: Daemon) {
         const { missing } = d.vault.env(secrets);
         if (missing.length) bad(`missing secrets in the vault: ${missing.join(', ')}. Ask the operator via inbox_send (kind "request", secrets: [${missing.map((m) => `"${m}"`).join(', ')}]).`);
         const guard = b.guardMaxDrawdownPct !== undefined ? { maxDrawdownPct: num(b.guardMaxDrawdownPct, 'guardMaxDrawdownPct', { min: 0.01 }) } : undefined;
-        store.append('venue.register', { id, module, description: b.description ?? desc.result?.description, secrets, strategy: b.strategy, guard, kind: b.kind, enabled: true });
+        store.append('venue.register', { id, module, description: b.description ?? desc.result?.description, secrets, strategy: b.strategy, guard, kind: b.kind, enabled: true, hasFlows: desc.result?.hasFlows ?? false });
         const round = await d.reconciler.round([id]);
         const v = store.state.venues.get(id);
         return { ok: true, snapshot: v?.latest ?? null, error: v?.lastError?.message, navUsd: round.navUsd };

@@ -16,7 +16,7 @@ import { newId } from '../lib/ids.ts';
 import { fmtPct, fmtUsd, roundUsd } from '../lib/money.ts';
 import type { PriceOracle } from './prices.ts';
 import type { StateStore, VenueState } from './state.ts';
-import type { RunnerResult, VenueFlow, VenueSnapshot } from './venues/types.ts';
+import type { RunnerResult, VenueFlow, VenueFlowScan, VenueSnapshot } from './venues/types.ts';
 
 export type VenueCall = (venue: VenueState, method: 'snapshot' | 'flows', args?: unknown) => Promise<RunnerResult>;
 
@@ -82,6 +82,8 @@ export class Reconciler {
     store.sync();
     const t0 = this.clock();
     const targets = store.state.liveVenues().filter((v) => v.enabled && v.module && (!only || only.includes(v.id)));
+    // keep the pre-snapshot cursor: the new valuation timestamp would skip transfers.
+    const flowSince = new Map(targets.map((v) => [v.id, v.lastFlowScan ? v.lastFlowScan.through - 60_000 : v.latest?.ts ?? v.registeredAt - 15 * 60_000]));
     const results: RoundResult['venues'] = [];
     const incidents: string[] = [];
     const stale: string[] = [];
@@ -119,7 +121,7 @@ export class Reconciler {
     // deposits / withdrawals reported by adapters that can see them
     for (const v of targets) {
       if (!results.find((r) => r.id === v.id)?.ok) continue;
-      await this.ingestFlows(v, incidents).catch((e) => this.log.warn(`flows for ${v.id} failed`, e));
+      await this.ingestFlows(v, flowSince.get(v.id)!, incidents).catch((e) => this.log.warn(`flows for ${v.id} failed`, e));
     }
 
     // canonical NAV point for this round
@@ -134,12 +136,14 @@ export class Reconciler {
     return { ts: t0, navUsd: nav, venues: results, incidents };
   }
 
-  private async ingestFlows(v: VenueState, incidents: string[]): Promise<void> {
+  private async ingestFlows(v: VenueState, since: number, incidents: string[]): Promise<void> {
     const { store, oracle } = this.d;
-    const since = v.latest?.ts ?? v.registeredAt;
     const r = await this.d.callVenue(v, 'flows', { since });
     if (!r.ok) return; // adapters without flows() answer with an error, that is fine
-    const flows = (r.result ?? []) as VenueFlow[];
+    const scan = r.result as VenueFlow[] | VenueFlowScan;
+    const flows = Array.isArray(scan) ? scan : scan.flows;
+    const through = Array.isArray(scan) ? this.clock() : scan.through;
+    if (!Array.isArray(flows) || !Number.isFinite(through) || (through < since && flows.length > 0)) throw new Error('invalid flow scan result');
     const known = new Set<string>();
     for (const f of store.state.flows) if (f.ref) known.add(f.ref);
     for (const i of store.state.inflows.values()) if (i.ref) known.add(i.ref);
@@ -154,14 +158,15 @@ export class Reconciler {
           store.append('capital.in', { usd, venue: v.id, ref: f.ref, at: f.ts, by: 'system', note: `auto: deposit from operator address ${f.from}` });
         } else {
           const id = newId('in');
-          store.append('inflow.unclassified', { id, venue: v.id, usd, asset: f.asset, from: f.from, ref: f.ref });
-          const inc = this.raise('warn', 'unclassified_inflow', f.ref, `${fmtUsd(usd)} of ${f.asset} arrived at "${v.id}" from ${f.from ?? 'unknown'} (ref ${f.ref}). Deposit from you, or income? Until classified it is excluded from P&L: run \`ouro fund add ${usd} --venue ${v.id}\` if it was your deposit.`, { venue: v.id, inflowId: id, usd });
+          store.append('inflow.unclassified', { id, venue: v.id, usd, asset: f.asset, from: f.from, ref: f.ref, at: f.ts });
+          const inc = this.raise('warn', 'unclassified_inflow', f.ref, `${fmtUsd(usd)} of ${f.asset} arrived at "${v.id}" from ${f.from ?? 'unknown'} (ref ${f.ref}). Deposit from you, or income? Until classified it is excluded from P&L: run \`ouro fund resolve ${id} capital|income|ignore\`.`, { venue: v.id, inflowId: id, usd });
           if (inc) incidents.push(inc);
         }
       } else if (f.to && operator.has(f.to.toLowerCase())) {
         store.append('capital.out', { usd, venue: v.id, ref: f.ref, at: f.ts, by: 'system', note: `auto: withdrawal to operator address ${f.to}` });
       }
     }
+    store.append('venue.flows.scan', { venue: v.id, since, through });
   }
 
   // two checks on the newest round: a rise nobody can explain, and a large drop that needs a post-mortem
@@ -174,10 +179,9 @@ export class Reconciler {
       // explained by recorded income or trade P&L since the previous round?
       let explained = 0;
       for (const t of store.state.trades) if (t.ts > round.t0 && t.pnlUsd) explained += t.pnlUsd;
-      const unclassified = store.state.unclassifiedInflows().reduce((s, i) => s + i.usd, 0);
-      // only flag it when recorded trade profit and unclassified deposits explain less than half of the rise
-      if (explained + unclassified < 0.5 * delta) {
-        const id = this.raise('warn', 'unexplained_jump', String(round.t1), `NAV rose ${fmtUsd(delta)} (${fmtPct(delta / round.v0)}) since the last reconciliation with no recorded deposit, income or trade P&L. If you deposited funds run \`ouro fund add\`; otherwise the agent must explain it. Until then treat it as unproven.`, { delta, from: round.v0, to: round.v1 });
+      // lastRound already removes pending inflows from the NAV change.
+      if (explained < 0.5 * delta) {
+        const id = this.raise('warn', 'unexplained_jump', String(round.t1), `NAV rose ${fmtUsd(delta)} (${fmtPct(delta / round.v0)}) since the last reconciliation with no recorded deposit, income or trade P&L. Check \`ouro fund inflows\` and the venue transfer history; record manual capital only for a transfer the adapter cannot detect. Until then treat it as unproven.`, { delta, from: round.v0, to: round.v1 });
         if (id) incidents.push(id);
       }
     }

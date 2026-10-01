@@ -19,8 +19,23 @@ export interface StatusReport {
   asOf: number;
   generatedAt: number;
   complete: boolean;
+  revision?: number;
+  sourceSeq?: number;
   text: string;
   short: string;
+}
+
+// a transfer discovered after midnight still belongs to the day it landed.
+function reportTime(ev: LogEvent): number {
+  if (['capital.in', 'capital.out', 'inflow.unclassified'].includes(ev.type) && Number.isFinite(ev.data?.at)) return ev.data.at;
+  return ev.ts;
+}
+
+function transfersCovered(events: LogEvent[], end: number): boolean {
+  const state = new State();
+  for (const ev of events) if (ev.ts < end) state.apply(ev);
+  return state.liveVenues().filter((v) => v.enabled && v.hasFlows && v.registeredAt < end).every((v) =>
+    events.some((ev) => ev.type === 'venue.flows.scan' && ev.data.venue === v.id && ev.ts >= end && ev.data.since < end && ev.data.through >= end));
 }
 
 /** rebuild the state at the cutoff so a late restart cannot leak tomorrow's activity into yesterday. */
@@ -30,14 +45,23 @@ export function buildReport(events: LogEvent[], from: number, asOf: number, gene
   let openingNav: number | undefined;
   let model = 'not recorded yet';
   const strategies = new Map<string, boolean>();
+  let paperTrades = 0;
+  let liveTrades = 0;
   for (const ev of events) {
-    if (ev.ts >= asOf) continue;
+    const at = reportTime(ev);
+    if (at >= asOf) continue;
     state.apply(ev);
     if (ev.type === 'model.set') model = `${ev.data.provider}/${ev.data.model}`;
     if (ev.type === 'strategy.start') strategies.set(ev.data.name, true);
     if (ev.type === 'strategy.stop' || ev.type === 'strategy.exit') strategies.set(ev.data.name, false);
     if (ev.ts < from && ev.type === 'nav') openingNav = state.metrics(ev.ts).navUsd;
-    if (ev.ts >= from) activity.push(ev);
+    if (at >= from) {
+      activity.push(ev);
+      if (ev.type === 'trade') {
+        if (state.venues.get(ev.data.venue)?.kind === 'paper' || ev.data.venue === 'paper') paperTrades++;
+        else liveTrades++;
+      }
+    }
   }
   const metrics = state.metrics(asOf);
   const count = (type: string) => activity.filter((ev) => ev.type === type).length;
@@ -54,21 +78,16 @@ export function buildReport(events: LogEvent[], from: number, asOf: number, gene
   if (count('strategy.start') || count('strategy.exit')) changes.push(`Strategy starts: ${count('strategy.start')}. Exits: ${count('strategy.exit')}.`);
   if (count('selfmod.promote') || count('selfmod.rollback')) changes.push(`Harness releases promoted: ${count('selfmod.promote')}. Rollbacks: ${count('selfmod.rollback')}.`);
   if (count('incident')) changes.push(`New incidents: ${count('incident')}.`);
-  // summaries are the agent's own recorded words. private inbox messages and credentials are omitted.
-  const handoff = episodes.at(-1)?.data.handoff;
-  if (handoff) changes.push(`Latest handoff: ${String(handoff).replace(/\s+/g, ' ').slice(0, 600)}`);
-  for (const ev of activity.filter((ev) => ev.type === 'journal').slice(-3)) {
-    changes.push(`Journal: ${String(ev.data.text).replace(/\s+/g, ' ').slice(0, 400)}`);
-  }
   const valuation = lastNav ? `${dollars(metrics.navUsd)} (last valued ${iso(lastNav.ts)})` : 'not yet valued';
   const text = [
     `Ouroboros | ${date} UTC${complete ? '' : ' | interim'}`,
     `Period: ${iso(from)} to ${iso(asOf)} (exclusive).`,
     `Status at cutoff: ${mode}. Model: ${model}.`,
     `NAV: ${valuation}.`,
-    `Lifetime P&L: ${lastNav ? dollars(metrics.pnlUsd) : 'unavailable'}. After operator subsidy: ${lastNav ? dollars(metrics.pnlAfterSubsidyUsd) : 'unavailable'}.`,
+    `Lifetime P&L: ${lastNav ? dollars(metrics.pnlUsd) : 'unavailable'}${metrics.performanceProvisional ? ' (provisional)' : ''}. After operator subsidy: ${lastNav ? dollars(metrics.pnlAfterSubsidyUsd) : 'unavailable'}.`,
+    `Contributions: ${dollars(metrics.contributedUsd)} total, ${dollars(metrics.withdrawnUsd)} withdrawn, ${dollars(metrics.netContributedUsd)} net. Unresolved inflows: ${state.unclassifiedInflows().length} (${dollars(metrics.unclassifiedUsd)}).`,
     `Period NAV change: ${openingNav !== undefined && lastNav ? dollars(metrics.navUsd - openingNav) : 'no opening valuation'}. Deposits: ${dollars(sum('capital.in'))}. Withdrawals: ${dollars(sum('capital.out'))}.`,
-    `Inference cost: ${dollars(sum('llm.usage'))}. Trades: ${count('trade')}. Episodes finished: ${episodes.length} (${failed} failed).`,
+    `Inference cost: ${dollars(sum('llm.usage'))}. Trades: ${paperTrades} paper, ${liveTrades} live. Episodes finished: ${episodes.length} (${failed} failed).`,
     `Venues: ${metrics.venues}. Strategies last recorded running: ${[...strategies.values()].filter(Boolean).length}. Open incidents: ${metrics.openIncidents}. Open inbox items: ${metrics.openInbox}.`,
     ...(metrics.staleVenues.length || metrics.unpricedAssets.length ? [`Valuation gaps: ${metrics.staleVenues.length} stale venues, ${metrics.unpricedAssets.length} unpriced assets.`] : []),
     '',
@@ -78,9 +97,9 @@ export function buildReport(events: LogEvent[], from: number, asOf: number, gene
   // use only ASCII and cap length so the compact report fits a standard X post.
   const short = [
     `Ouroboros | ${date} UTC${complete ? '' : ' (interim)'}`,
-    `${mode}. NAV ${lastNav ? dollars(metrics.navUsd) : 'unvalued'}. P&L ${lastNav ? dollars(metrics.pnlUsd) : 'n/a'} lifetime.`,
-    `${count('trade')} trades, ${episodes.length} episodes (${failed} failed). Inference ${dollars(sum('llm.usage'))}.`,
-    `${count('selfmod.promote')} releases, ${count('incident')} new incidents.`,
+    `${mode}. NAV ${lastNav ? dollars(metrics.navUsd) : 'unvalued'}. P&L ${lastNav ? dollars(metrics.pnlUsd) : 'n/a'}${metrics.performanceProvisional ? ' provisional' : ''}.`,
+    `Contrib ${dollars(metrics.netContributedUsd)} net. Trades ${paperTrades} paper/${liveTrades} live. Unresolved ${dollars(metrics.unclassifiedUsd)}.`,
+    `Valued ${lastNav ? iso(lastNav.ts).slice(0, 16) + 'Z' : 'never'}. Inference ${dollars(sum('llm.usage'))}.`,
     ...(metrics.staleVenues.length || metrics.unpricedAssets.length ? ['Valuation incomplete.'] : []),
   ].join('\n').slice(0, 280);
   return globalRedactor.redactValue({ date, from, asOf, generatedAt, complete, text, short });
@@ -102,27 +121,47 @@ export class DailyReports {
     const now = this.clock();
     const end = utcDayStart(now);
     const dir = path.join(this.paths.home, 'reports');
-    const file = path.join(dir, `${iso(end - DAY).slice(0, 10)}.json`);
-    // cli and daemon can request the same day together. the archive is committed once.
+    // cli and daemon can request the same day together. late ledger facts may revise it.
     return withLockSync(path.join(this.paths.run, 'report.lock'), () => {
-      let report = readJson<StatusReport | undefined>(file, undefined);
-      if (!report) {
-        const events = this.store.log.readAll();
-        const genesis = events.find((ev) => ev.type === 'genesis');
-        if (!genesis || genesis.ts >= end) return undefined;
-        report = buildReport(events, end - DAY, end, now, true);
-        writeJson(file, report, 0o600);
+      const events = this.store.log.readAll();
+      const genesis = events.find((ev) => ev.type === 'genesis');
+      if (!genesis || genesis.ts >= end) return undefined;
+      const retroactive = events.filter((ev) => reportTime(ev) < ev.ts);
+      const archive = (cutoff: number): StatusReport | undefined => {
+        const file = path.join(dir, `${iso(cutoff - DAY).slice(0, 10)}.json`);
+        let report = readJson<StatusReport | undefined>(file, undefined);
+        const changed = !report || events.some((ev) => ev.seq > (report!.sourceSeq ?? 0) && reportTime(ev) < cutoff);
+        if (changed && !transfersCovered(events, cutoff)) return report;
+        // only replay an archive when a newly appended fact belongs before its cutoff.
+        if (changed) {
+          const rebuilt = buildReport(events, cutoff - DAY, cutoff, now, true);
+          if (!report || report.text !== rebuilt.text || report.short !== rebuilt.short || !report.complete) {
+            report = { ...rebuilt, revision: (report?.revision ?? 0) + 1, sourceSeq: events.at(-1)?.seq ?? 0 };
+            writeJson(file, report, 0o600);
+          }
+        }
+        if (!report) return undefined;
+        // repair the text and latest pointer if an earlier write was interrupted.
+        const textFile = path.join(dir, `${report.date}.txt`);
+        if (!fs.existsSync(textFile) || fs.readFileSync(textFile, 'utf8') !== report.text + '\n') writeFileAtomic(textFile, report.text + '\n', 0o600);
+        const latestFile = path.join(dir, 'latest.json');
+        const latest = readJson<StatusReport | undefined>(latestFile, undefined);
+        if (!latest || latest.asOf < report.asOf || (latest.asOf === report.asOf && latest.revision !== report.revision) || !fs.existsSync(path.join(dir, 'latest.txt'))) {
+          writeFileAtomic(path.join(dir, 'latest.txt'), report.text + '\n', 0o600);
+          writeJson(latestFile, report, 0o600);
+        }
+        return report;
+      };
+      // older archives can receive transfers even after a newer day has closed.
+      if (fs.existsSync(dir)) {
+        for (const name of fs.readdirSync(dir).filter((s) => /^\d{4}-\d{2}-\d{2}\.json$/.test(s)).sort()) {
+          const cutoff = Date.parse(`${name.slice(0, 10)}T00:00:00.000Z`) + DAY;
+          if (!Number.isFinite(cutoff) || cutoff >= end) continue;
+          const old = readJson<StatusReport | undefined>(path.join(dir, name), undefined);
+          if (!old?.sourceSeq || retroactive.some((ev) => ev.seq > old.sourceSeq! && reportTime(ev) < cutoff)) archive(cutoff);
+        }
       }
-      // repair the text/pointer files too if a previous write was interrupted.
-      const latestFile = path.join(dir, 'latest.json');
-      const latest = readJson<StatusReport | undefined>(latestFile, undefined);
-      const textFile = path.join(dir, `${report.date}.txt`);
-      if (!fs.existsSync(textFile)) writeFileAtomic(textFile, report.text + '\n', 0o600);
-      if (!latest || latest.asOf < report.asOf || !fs.existsSync(path.join(dir, 'latest.txt'))) {
-        writeFileAtomic(path.join(dir, 'latest.txt'), report.text + '\n', 0o600);
-        writeJson(latestFile, report, 0o600);
-      }
-      return report;
+      return archive(end);
     });
   }
 
@@ -132,8 +171,11 @@ export class DailyReports {
       if (report) return globalRedactor.redactValue(report);
     }
     const ts = this.clock();
+    const end = utcDayStart(ts);
+    const events = this.store.log.readAll();
+    if (!now && events.some((ev) => ev.type === 'genesis' && ev.ts < end)) return buildReport(events, end - DAY, end, ts, false);
     // a first-day install still has something useful to print before its first midnight.
-    return buildReport(this.store.log.readAll(), utcDayStart(ts), ts, ts, false);
+    return buildReport(events, end, ts, ts, false);
   }
 
   start(onError: (error: unknown) => void): void {

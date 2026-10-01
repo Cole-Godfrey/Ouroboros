@@ -287,7 +287,7 @@ export class Daemon {
         const { ensureEvmWallet } = await import('../toolkit/evm.ts');
         const w = ensureEvmWallet(this.vault, this.paths.wallets, this.clock());
         if (w.created) this.log.info(`created the agent's EVM wallet ${w.address}`);
-        if (!st.state.venues.has('evm-wallet')) st.append('venue.register', { id: 'evm-wallet', module: 'builtin/evm-wallet', description: "The agent's own EVM wallet (Base, Arbitrum, Optimism, Polygon, Ethereum)", secrets: [], enabled: true });
+        if (!st.state.venues.has('evm-wallet')) st.append('venue.register', { id: 'evm-wallet', module: 'builtin/evm-wallet', description: "The agent's own EVM wallet (Base, Arbitrum, Optimism, Polygon, Ethereum)", secrets: [], enabled: true, hasFlows: true });
       } catch (e) {
         this.log.warn('could not set up the EVM wallet', e instanceof Error ? e.message : String(e));
       }

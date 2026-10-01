@@ -37,7 +37,9 @@ test('midnight UTC archives the closing day once and excludes events at the next
   assert.equal(report.asOf, Date.UTC(2026, 0, 2));
   assert.match(report.text, /NAV: \$1\.25/);
   assert.match(report.text, /Lifetime P&L: \$0\.25/);
-  assert.match(report.text, /Inference cost: \$0\.03\. Trades: 1/);
+  assert.match(report.text, /Inference cost: \$0\.03\. Trades: 1 paper, 0 live/);
+  assert.match(report.text, /Contributions: \$1\.00 total/);
+  assert.match(report.short, /Valued 2026-01-01T23:59Z/);
   assert.doesNotMatch(report.text, /tomorrow|\$99/);
   assert.ok(report.short.length <= 280);
   const archive = path.join(t.paths.home, 'reports', '2026-01-01.json');
@@ -63,7 +65,7 @@ test('sleep recovery reports the last complete UTC day and never invents activit
   assert.match(t.reports.latest(true).text, /NAV: \$50\.00/);
 });
 
-test('reports retain failed episodes, model changes and journal updates while redacting secrets', () => {
+test('public reports count failed episodes and model changes without agent-written text', () => {
   const t = setup();
   globalRedactor.add('REPORT_TEST_SECRET', 'private-report-test-key');
   try {
@@ -75,13 +77,61 @@ test('reports retain failed episodes, model changes and journal updates while re
     t.clock.advance(1000);
     const report = t.reports.latest();
     assert.match(report.text, /1 \(1 failed\)/);
-    assert.match(report.text, /Measured fees before trading/);
     assert.match(report.text, /Harness releases promoted: 1/);
-    assert.doesNotMatch(JSON.stringify(report), /private-report-test-key|private inbox content|do not publish/);
-    assert.match(report.text, /REPORT_TEST_SECRET/);
+    assert.doesNotMatch(JSON.stringify(report), /private-report-test-key|private inbox content|do not publish|Retry tomorrow|Measured fees before trading/);
   } finally {
     globalRedactor.setSecrets([]);
   }
+});
+
+test('a report waits for a transfer scan through midnight and corrects late transfers', () => {
+  const t = setup();
+  const cutoff = Date.UTC(2026, 0, 2);
+  t.store.append('venue.register', { id: 'evm-wallet', module: 'builtin/evm-wallet', hasFlows: true });
+  t.store.append('capital.in', { usd: 1 });
+  t.store.append('nav', { usd: 2 });
+  t.clock.advance(1000);
+  assert.equal(t.reports.generateDue(), undefined);
+  assert.equal(t.reports.latest().complete, false);
+  assert.equal(t.reports.latest().date, '2026-01-01');
+  t.store.append('venue.flows.scan', { venue: 'evm-wallet', since: cutoff - 60_000, through: cutoff - 1 });
+  assert.equal(t.reports.generateDue(), undefined);
+  t.clock.advance(30_000);
+  t.store.append('venue.flows.scan', { venue: 'evm-wallet', since: cutoff - 60_000, through: cutoff + 1_000 });
+  const first = t.reports.generateDue()!;
+  assert.equal(first.revision, 1);
+  assert.match(first.text, /Lifetime P&L: \$1\.00/);
+
+  // the event is written later, but its transfer time belongs to the closing day.
+  t.store.append('inflow.unclassified', { id: 'late', venue: 'evm-wallet', usd: 1, asset: 'USDC', ref: 'base:late:usdc:0', at: cutoff - 1_000 });
+  const corrected = t.reports.generateDue()!;
+  assert.equal(corrected.revision, 2);
+  assert.match(corrected.text, /Lifetime P&L: \$0\.00 \(provisional\)/);
+  assert.match(corrected.text, /Unresolved inflows: 1 \(\$1\.00\)/);
+  assert.match(corrected.short, /Unresolved \$1\.00/);
+  assert.equal(fs.readFileSync(path.join(t.paths.home, 'reports', 'latest.txt'), 'utf8'), corrected.text + '\n');
+  const before = fs.statSync(path.join(t.paths.home, 'reports', '2026-01-01.json')).mtimeMs;
+  assert.deepEqual(t.reports.generateDue(), corrected);
+  assert.equal(fs.statSync(path.join(t.paths.home, 'reports', '2026-01-01.json')).mtimeMs, before);
+
+  t.store.append('capital.in', { usd: 5, venue: 'evm-wallet', at: cutoff });
+  assert.deepEqual(t.reports.generateDue(), corrected);
+});
+
+test('a transfer discovered days later revises its original archive without replacing the latest day', () => {
+  const t = setup();
+  t.store.append('capital.in', { usd: 1 });
+  t.store.append('nav', { usd: 1 });
+  t.clock.advance(1000);
+  const first = t.reports.generateDue()!;
+  t.clock.advance(DAY);
+  const latest = t.reports.generateDue()!;
+  t.store.append('capital.in', { usd: 1, at: Date.UTC(2026, 0, 1, 23, 59, 59), ref: 'base:old:usdc:0' });
+  assert.equal(t.reports.generateDue()?.date, latest.date);
+  const corrected = JSON.parse(fs.readFileSync(path.join(t.paths.home, 'reports', '2026-01-01.json'), 'utf8'));
+  assert.equal(corrected.revision, first.revision! + 1);
+  assert.match(corrected.text, /Contributions: \$2\.00 total/);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(t.paths.home, 'reports', 'latest.json'), 'utf8')).date, latest.date);
 });
 
 test('daily counts use the full ledger even when in-memory episode history is capped', () => {

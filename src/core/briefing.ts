@@ -66,7 +66,7 @@ export function buildBriefing(i: BriefingInput): string {
   L.push('');
 
   L.push('## Money (independent ledger, it outranks your memory)');
-  L.push(`NAV ${fmtUsd(m.navUsd)} · contributed ${fmtUsd(m.netContributedUsd)} · P&L ${m.pnlUsd >= 0 ? '+' : ''}${fmtUsd(m.pnlUsd)}${m.pnlPct !== null ? ` (${fmtPct(m.pnlPct)})` : ''} · after operator subsidy ${fmtUsd(m.pnlAfterSubsidyUsd)}`);
+  L.push(`NAV ${fmtUsd(m.navUsd)} · contributed ${fmtUsd(m.netContributedUsd)} · P&L ${m.pnlUsd >= 0 ? '+' : ''}${fmtUsd(m.pnlUsd)}${m.pnlPct !== null ? ` (${fmtPct(m.pnlPct)})` : ''}${m.performanceProvisional ? ` provisional, unresolved inflows ${fmtUsd(m.unclassifiedUsd)}` : ''} · after operator subsidy ${fmtUsd(m.pnlAfterSubsidyUsd)}`);
   L.push(`Growth (log, flow-adjusted): 1d ${pct(m.growth.d1)} · 7d ${pct(m.growth.d7)} · 30d ${pct(m.growth.d30)} · all ${pct(m.growth.all)}${m.doublingDays ? ` · doubling ≈ ${m.doublingDays.toFixed(1)}d` : ''}`);
   L.push(`Drawdown: now ${fmtPct(m.drawdown)}, max ${fmtPct(m.maxDrawdown)} · burn ≈ ${fmtUsd(m.burnPerDayUsd)}/day${m.runwayDays !== undefined ? ` · runway ${m.runwayDays.toFixed(0)}d` : ''}`);
   const venues = state.liveVenues();

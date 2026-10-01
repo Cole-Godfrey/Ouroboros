@@ -124,7 +124,8 @@ test('the daemon runs the genesis episode by itself, notifies the operator, mete
     const dash: any = await fetch(`http://127.0.0.1:${d.dashboardPort}/v1/dashboard?token=${token}`).then((r) => r.json());
     assert.equal(dash.episodes[0].outcome, 'completed');
     const report: any = await fetch(`http://127.0.0.1:${d.dashboardPort}/v1/report?token=${token}&now=1`).then((r) => r.json());
-    assert.match(report.text, /Waiting for funds/);
+    assert.doesNotMatch(report.text, /Waiting for funds/);
+    assert.match(report.text, /Contributions:/);
     assert.equal(report.complete, false);
     assert.equal((await fetch(`http://127.0.0.1:${d.dashboardPort}/v1/report`)).status, 401);
     const artwork = await fetch(`http://127.0.0.1:${d.dashboardPort}/ouroboros.png`);

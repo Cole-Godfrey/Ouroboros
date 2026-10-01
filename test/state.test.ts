@@ -39,6 +39,45 @@ test('a deposit does not register as profit in the wealth index', () => {
   assert.equal(store.state.metrics(clock.now()).pnlUsd, 0);
 });
 
+test('an unresolved inflow keeps performance provisional until classified', () => {
+  const { store, clock } = makeStore();
+  store.append('capital.in', { usd: 1 });
+  nav(store, 1);
+  clock.advance(HOUR);
+  store.append('inflow.unclassified', { id: 'pending', venue: 'wallet', usd: 1, asset: 'USDC', at: clock.now() });
+  nav(store, 2);
+  const pending = store.state.metrics(clock.now());
+  assert.equal(pending.navUsd, 2);
+  assert.equal(pending.netContributedUsd, 1);
+  assert.equal(pending.pnlUsd, 0);
+  assert.equal(pending.pnlPct, null);
+  assert.equal(pending.performanceProvisional, true);
+  assert.equal(pending.unclassifiedUsd, 1);
+  assert.equal(pending.index, 1);
+
+  store.append('inflow.resolve', { id: 'pending', as: 'capital', by: 'operator' });
+  store.append('capital.in', { usd: 1, venue: 'wallet', at: clock.now() });
+  const classified = store.state.metrics(clock.now());
+  assert.equal(classified.pnlUsd, 0);
+  assert.equal(classified.netContributedUsd, 2);
+  assert.equal(classified.performanceProvisional, false);
+});
+
+test('classifying an unresolved inflow as income restores its return', () => {
+  const { store, clock } = makeStore();
+  store.append('capital.in', { usd: 1 });
+  nav(store, 1);
+  clock.advance(HOUR);
+  store.append('inflow.unclassified', { id: 'income', venue: 'wallet', usd: 1, at: clock.now() });
+  nav(store, 2);
+  assert.equal(store.state.metrics(clock.now()).pnlUsd, 0);
+  store.append('inflow.resolve', { id: 'income', as: 'income', by: 'operator' });
+  store.append('income', { usd: 1, category: 'other' });
+  const m = store.state.metrics(clock.now());
+  assert.equal(m.pnlUsd, 1);
+  assert.equal(m.performanceProvisional, false);
+});
+
 test('growth per day and doubling time come from the flow-adjusted index', () => {
   const { store, clock } = makeStore();
   store.append('capital.in', { usd: 1 });

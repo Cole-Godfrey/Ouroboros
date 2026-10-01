@@ -138,9 +138,9 @@ function render(d) {
   const gd = g.d7 ?? g.all;
   $('tiles').innerHTML = [
     tile('Net asset value', usd(m.navUsd), `contributed ${usd(m.netContributedUsd)}`),
-    tile('Profit / loss', (m.pnlUsd >= 0 ? '+' : '') + usd(m.pnlUsd), m.pnlPct === null ? '' : pct(m.pnlPct), cls(m.pnlUsd)),
-    tile('After operator subsidy', (m.pnlAfterSubsidyUsd >= 0 ? '+' : '') + usd(m.pnlAfterSubsidyUsd), `subsidy ${usd(m.subsidyUsd)}`, cls(m.pnlAfterSubsidyUsd)),
-    tile('Growth per day', gd === undefined ? 'n/a' : (gd >= 0 ? '+' : '') + pct(gd), m.doublingDays ? `doubling ≈ ${m.doublingDays.toFixed(1)} days` : '7-day window when available', cls(gd)),
+    tile('Profit / loss', (m.pnlUsd >= 0 ? '+' : '') + usd(m.pnlUsd), m.performanceProvisional ? `provisional · unresolved ${usd(m.unclassifiedUsd)}` : m.pnlPct === null ? '' : pct(m.pnlPct), cls(m.pnlUsd)),
+    tile('After operator subsidy', (m.pnlAfterSubsidyUsd >= 0 ? '+' : '') + usd(m.pnlAfterSubsidyUsd), m.performanceProvisional ? 'provisional' : `subsidy ${usd(m.subsidyUsd)}`, cls(m.pnlAfterSubsidyUsd)),
+    tile('Growth per day', gd === undefined ? 'n/a' : (gd >= 0 ? '+' : '') + pct(gd), m.performanceProvisional ? 'provisional' : m.doublingDays ? `doubling ≈ ${m.doublingDays.toFixed(1)} days` : '7-day window when available', cls(gd)),
     tile('Drawdown', pct(m.drawdown), `max ${pct(m.maxDrawdown)}`, m.drawdown > 0.2 ? 'bad' : ''),
     tile('Inference today', usd(d.budget.spentTodayUsd), `of ${usd(d.budget.dailyLimitUsd)} · ${esc(d.budget.mode)}-funded`, d.budget.exhausted ? 'bad' : ''),
     tile('Inbox / incidents', `${d.inbox.open} / ${d.incidents}`, `${d.inbox.unseenForAgent} unseen by agent`, d.incidents ? 'warn' : ''),

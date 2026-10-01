@@ -22,7 +22,7 @@ export const ago = (now: number, ts?: number): string => {
 export function formatStatus(s: any): string {
   const m = s.metrics;
   const L: string[] = [];
-  L.push(`NAV ${usd(m.navUsd)} · contributed ${usd(m.netContributedUsd)} · P&L ${m.pnlUsd >= 0 ? '+' : ''}${usd(m.pnlUsd)} (${pct(m.pnlPct)}) · after operator subsidy ${usd(m.pnlAfterSubsidyUsd)}`);
+  L.push(`NAV ${usd(m.navUsd)} · contributed ${usd(m.netContributedUsd)} · P&L ${m.pnlUsd >= 0 ? '+' : ''}${usd(m.pnlUsd)} (${pct(m.pnlPct)})${m.performanceProvisional ? ` provisional, unresolved inflows ${usd(m.unclassifiedUsd)}` : ''} · after operator subsidy ${usd(m.pnlAfterSubsidyUsd)}`);
   const g = m.growth ?? {};
   L.push(`Growth/day (log, deposits removed): 1d ${pct(g.d1)} · 7d ${pct(g.d7)} · 30d ${pct(g.d30)} · all ${pct(g.all)}${m.doublingDays ? ` · doubling ≈ ${m.doublingDays.toFixed(1)}d` : ''}`);
   L.push(`Drawdown now ${pct(m.drawdown)} (max ${pct(m.maxDrawdown)}) · burn ${usd(m.burnPerDayUsd)}/day`);

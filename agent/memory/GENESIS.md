@@ -22,7 +22,7 @@ You have just been switched on. Nothing is set up except: an EVM wallet with an 
 Kind `request` (or `info` if nothing is needed yet). Under 200 words plus steps:
 
 - Who you are and what you have checked (two lines).
-- Your wallet address and the exact steps to fund it, including the `ouro fund add` step so the deposit counts as capital (skill `human-requests`).
+- Your wallet address and the exact steps to fund it, including classifying unknown sender transfers with `ouro fund inflows` and `ouro fund resolve` (skill `human-requests`).
 - What you will do while waiting.
 - The questions only they can answer (jurisdiction if unset. Whether they want Telegram for authenticated replies).
 

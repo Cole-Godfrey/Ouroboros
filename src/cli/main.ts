@@ -235,7 +235,7 @@ function wallet() {
   if (!w.evm) return say(yellow('No wallet yet. Run `ouro init` (or start the daemon).'));
   say(`${bold('EVM address')}  ${cyan(w.evm.address)}  ${dim('(same on Base, Arbitrum, Optimism, Polygon, Ethereum)')}`);
   say(dim(`  https://basescan.org/address/${w.evm.address}`));
-  say('\nTo give the agent money: send USDC on Base to that address, plus $0.25 to $1 of ETH on Base for gas (without any ETH the wallet cannot transact; it counts toward NAV),\nthen run: ' + cyan('ouro fund add <amount> --venue evm-wallet') + '\nOnly send what you are prepared to lose. Keep your own copy of the key: ' + cyan('ouro wallet export') + '.');
+  say('\nTo give the agent money: send USDC on Base to that address, plus $0.25 to $1 of ETH on Base for gas (without any ETH the wallet cannot transact; it counts toward NAV).\nConfirmed transfers from unknown addresses appear in ' + cyan('ouro fund inflows') + '; classify your deposit with ' + cyan('ouro fund resolve <id> capital') + '. Do not also record it with fund add.\nOnly send what you are prepared to lose. Keep your own copy of the key: ' + cyan('ouro wallet export') + '.');
 }
 
 // show or change the model the agent thinks with (the agent can also do this itself)
